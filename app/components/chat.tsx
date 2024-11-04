@@ -17,10 +17,16 @@ const UserMessage = ({ text }: { text: string }) => {
   return <div className={styles.userMessage}>{text}</div>;
 };
 
+const LinkRenderer = ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+    </a>
+);
+
 const AssistantMessage = ({ text }: { text: string }) => {
   return (
     <div className={styles.assistantMessage}>
-      <Markdown>{text}</Markdown>
+      <Markdown components={{ a: LinkRenderer }}>{text}</Markdown>
     </div>
   );
 };
@@ -61,7 +67,12 @@ const Chat = ({
   functionCallHandler = () => Promise.resolve(""), // default to return empty string
 }: ChatProps) => {
   const [userInput, setUserInput] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([
+      {
+          role: "assistant",
+          text: "👋 Welcome! How can I help you today with Needpedia?"
+      }
+  ]);
   const [inputDisabled, setInputDisabled] = useState(false);
   const [threadId, setThreadId] = useState("");
 
@@ -245,38 +256,42 @@ const Chat = ({
       })
       return [...prevMessages.slice(0, -1), updatedLastMessage];
     });
-    
+
   }
 
-  return (
-    <div className={styles.chatContainer}>
-      <div className={styles.messages}>
-        {messages.map((msg, index) => (
-          <Message key={index} role={msg.role} text={msg.text} />
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-      <form
-        onSubmit={handleSubmit}
-        className={`${styles.inputForm} ${styles.clearfix}`}
-      >
-        <input
-          type="text"
-          className={styles.input}
-          value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          placeholder="Enter your question"
-        />
-        <button
-          type="submit"
-          className={styles.button}
-          disabled={inputDisabled}
-        >
-          Send
-        </button>
-      </form>
-    </div>
-  );
+    return (
+        <div className={styles.chatWrapper}>
+            <h2 className={styles.chatHeader}>Needpedia Chatbot</h2>
+            <div className={styles.chatContainer}>
+                <div className={styles.messages}>
+                    {messages.map((msg, index) => (
+                        <Message key={index} role={msg.role} text={msg.text} />
+                    ))}
+                    <div ref={messagesEndRef} />
+                </div>
+            </div>
+            <form
+                onSubmit={handleSubmit}
+                className={`${styles.inputForm} ${styles.clearfix}`}
+            >
+                <input
+                    type="text"
+                    className={styles.input}
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    placeholder="Enter your question"
+                    aria-label="User input field"
+                />
+                <button
+                    type="submit"
+                    className={styles.button}
+                    disabled={inputDisabled}
+                >
+                    Send
+                </button>
+            </form>
+        </div>
+    );
 };
 
 export default Chat;
