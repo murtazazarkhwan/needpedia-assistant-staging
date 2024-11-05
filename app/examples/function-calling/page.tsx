@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styles from "../shared/page.module.css";
 import Chat from "../../components/chat";
 import WeatherWidget from "../../components/weather-widget";
@@ -14,13 +14,16 @@ interface WeatherData {
 
 const FunctionCalling = () => {
     const [weatherData, setWeatherData] = useState<WeatherData>({});
+    const [token, setToken] = useState<string | null>(null);
     const isEmpty = Object.keys(weatherData).length === 0;
 
-    // Get token from URL parameters
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('user_token');
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        setToken(params.get('user_token'));
+    }, []);
 
     const functionCallHandler = async (call: RequiredActionFunctionToolCall) => {
+        if (!token) return; // Guard clause if token isn't available
         if (call?.function?.name === "find_content") {
             const {query, type} = JSON.parse(call.function.arguments);
             try {
@@ -34,9 +37,6 @@ const FunctionCalling = () => {
                 });
 
                 const data = await response.json();
-
-                console.log("response data:", data)
-                console.log("token:", token)
                 setWeatherData(data);
                 return JSON.stringify(data);
             } catch (error) {
@@ -63,8 +63,6 @@ const FunctionCalling = () => {
                 // Append parameters to the URL
                 const url = `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/posts?${params.toString()}`;
 
-                console.log("Request URL:", url);  // Debug the URL
-
                 const response = await fetch(url, {
                     method: "POST",
                     headers: {
@@ -75,7 +73,6 @@ const FunctionCalling = () => {
                 });
 
                 const data = await response.json();
-                console.log("Response data:", data);
                 setWeatherData(data);
                 return JSON.stringify(data);
             } catch (error) {

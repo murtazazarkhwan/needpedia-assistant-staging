@@ -8,8 +8,10 @@ import Markdown from "react-markdown";
 import { AssistantStreamEvent } from "openai/resources/beta/assistants/assistants";
 import { RequiredActionFunctionToolCall } from "openai/resources/beta/threads/runs/runs";
 
+type MessageRole = "user" | "assistant" | "code";
+
 type MessageProps = {
-  role: "user" | "assistant" | "code";
+  role: MessageRole;
   text: string;
 };
 
@@ -69,7 +71,7 @@ const Chat = ({
   const [userInput, setUserInput] = useState("");
   const [messages, setMessages] = useState([
       {
-          role: "assistant",
+          role: "assistant" as MessageRole ,
           text: "👋 Welcome! How can I help you today with Needpedia?"
       }
   ]);
