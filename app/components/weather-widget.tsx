@@ -17,10 +17,10 @@ const WeatherWidget = ({
 
   if (isEmpty) {
     return (
-      <div className={`${styles.weatherWidget} ${styles.weatherEmptyState}`}>
-        <div className={styles.weatherWidgetData}>
-          <p>Enter a city to see local weather</p>
-          <p>try: what's the weather like in Berkeley?</p>
+      <div>
+        <div>
+          <p></p>
+          <p></p>
         </div>
       </div>
     );
@@ -31,11 +31,11 @@ const WeatherWidget = ({
   }`;
 
   return (
-    <div className={weatherClass}>
-      <div className={styles.weatherWidgetData}>
-        <p>{location}</p>
-        <h2>{temperature !== "---" ? `${temperature}°F` : temperature}</h2>
-        <p>{conditions}</p>
+    <div>
+      <div>
+        <p></p>
+        <h2></h2>
+        <p></p>
       </div>
     </div>
   );
