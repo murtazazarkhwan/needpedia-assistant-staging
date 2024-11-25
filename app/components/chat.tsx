@@ -85,18 +85,8 @@ const syncThreadWithBackend = async (thread: Thread, userToken: string) => {
 
 // OpenAI API functions
 const fetchThreadMessages = async (threadId: string, userToken: string) => {
-
-    if (!process.env.NEXT_PUBLIC_API_KEY) {
-        throw new Error('OpenAI API key not found in environment variables');
-    }
     try {
-        const response = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_API_KEY}`,
-                'OpenAI-Beta': 'assistants=v2',
-                'Content-Type': 'application/json'
-            }
-        });
+        const response = await fetch(`/api/assistants/threads/${threadId}/messages`);
 
         if (!response.ok) {
             throw new Error('Failed to fetch thread messages');
@@ -263,10 +253,11 @@ const Chat = ({
                     const processedThreads = threadsData.map(thread => {
                         const lastMessage = thread.messages[thread.messages.length - 1].text;
                         const lastUpdated = new Date().toISOString(); // Replace with actual timestamp if available
+                        const firstUserMessage = thread.messages.find(msg => msg.role === "user")?.text || "Untitled";
 
                         return {
                             id: thread.id,
-                            title: `Thread for ${thread.id}`,
+                            title: `${firstUserMessage}`,
                             lastMessage,
                             lastUpdated,
                             messages: thread.messages.map(msg => ({
@@ -678,7 +669,7 @@ const Chat = ({
                                 }}
                             >
                                 <div className={styles.threadTitle}>
-                                    {/*{ thread.messages.last}*/}
+                                    {thread.title}
                                 </div>
                                 <div className={styles.threadLastMessage}>
                                     {thread.lastMessage || 'New conversation'}
