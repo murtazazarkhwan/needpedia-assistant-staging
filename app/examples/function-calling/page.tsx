@@ -105,6 +105,23 @@ const FunctionCalling = () => {
                 const data = await makeAPIRequest(url, 'POST');
                 setWeatherData(data);
                 return JSON.stringify(data);
+            }else if (call.function.name === "edit_content") {
+                const { content_id, changes } = JSON.parse(call.function.arguments);
+                const { title, description } = changes;
+                // Prepare URL parameters
+                const params = new URLSearchParams({
+                    'token' : token,
+                    'post[title]': title || '',
+                    'post[content]': description || '',
+                });
+
+                // Construct the API URL with content_id
+                const url = `${process.env.NEXT_PUBLIC_API_BASE_URL}/posts/${content_id}/api_update?${params.toString()}`;
+
+                // Send PATCH request to update post
+                const data = await makeAPIRequest(url, 'PUT');
+                setWeatherData(data);
+                return JSON.stringify(data);
             }
         } catch (error) {
             console.error('Function call handler error:', error);
