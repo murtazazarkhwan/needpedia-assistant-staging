@@ -368,7 +368,7 @@ const Chat = ({
                 const updatedThreads = [...prevThreads, newThread];
                 if (userToken) {
                     localStorage.setItem(`${STORAGE_KEYS.THREADS}_${userToken}`, JSON.stringify(updatedThreads));
-                    syncThreadWithBackend(newThread, userToken);
+                    // syncThreadWithBackend(newThread, userToken);
                 }
                 return updatedThreads;
             });
@@ -547,9 +547,9 @@ const Chat = ({
             );
 
             const updatedThread = newThreads.find(t => t.id === threadId);
-            if (updatedThread && userToken) {
-                syncThreadWithBackend(updatedThread, userToken);
-            }
+            // if (updatedThread && userToken) {
+            //     syncThreadWithBackend(updatedThread, userToken);
+            // }
 
             return newThreads;
         });
@@ -630,7 +630,7 @@ const Chat = ({
                 <button onClick={toggleSidebar} className={styles.toggleSidebarButton}>
                     <svg className="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true"
                          xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-                        <path stroke="currentColor" stroke-linecap="round" stroke-width="2"
+                        <path stroke="currentColor"
                               d="M9 8h10M9 12h10M9 16h10M4.99 8H5m-.02 4h.01m0 4H5"/>
                     </svg>
                 </button>
@@ -650,7 +650,7 @@ const Chat = ({
                     <button onClick={createNewThread} className={styles.newChatButton}>
                         <svg className="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true"
                              xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
-                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            <path stroke="currentColor"
                                   d="M5 12h14m-7 7V5"/>
                         </svg>
                         New Chat
