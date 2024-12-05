@@ -5,6 +5,8 @@ import styles from "../shared/page.module.css";
 import Chat from "../../components/chat";
 import WeatherWidget from "../../components/weather-widget";
 import {RequiredActionFunctionToolCall} from "openai/resources/beta/threads/runs/runs";
+import marked from 'marked';
+import DOMPurify from 'dompurify';
 
 interface WeatherData {
     location?: string;
@@ -108,11 +110,22 @@ const FunctionCalling = () => {
             }else if (call.function.name === "edit_content") {
                 const { content_id, changes } = JSON.parse(call.function.arguments);
                 const { title, description } = changes;
+                const formatContent = (rawContent) => {
+                    if (!rawContent) return '';
+
+                    // Convert markdown to HTML
+                    const htmlContent = marked.parse(rawContent);
+
+                    // Sanitize the HTML to prevent XSS
+                    const sanitizedContent = DOMPurify.sanitize(htmlContent);
+
+                    return sanitizedContent;
+                };
                 // Prepare URL parameters
                 const params = new URLSearchParams({
                     'token' : token,
                     'post[title]': title || '',
-                    'post[content]': description || '',
+                    'post[content]': formatContent(description || ''),
                 });
 
                 // Construct the API URL with content_id
