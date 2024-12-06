@@ -4,8 +4,8 @@ import React, { useState, useEffect } from "react";
 import styles from "../shared/page.module.css";
 import Chat from "../../components/chat";
 import WeatherWidget from "../../components/weather-widget";
-import {RequiredActionFunctionToolCall} from "openai/resources/beta/threads/runs/runs";
-import marked from 'marked';
+import { RequiredActionFunctionToolCall } from "openai/resources/beta/threads/runs/runs";
+import { marked } from 'marked';  // Ensure correct import
 import DOMPurify from 'dompurify';
 
 interface WeatherData {
@@ -110,11 +110,13 @@ const FunctionCalling = () => {
             }else if (call.function.name === "edit_content") {
                 const { content_id, changes } = JSON.parse(call.function.arguments);
                 const { title, description } = changes;
-                const formatContent = (rawContent) => {
+
+                const formatContent = async (rawContent) => {
                     if (!rawContent) return '';
 
                     // Convert markdown to HTML
-                    const htmlContent = marked.parse(rawContent);
+                    const htmlContent = await marked(rawContent); // Ensure it's awaited
+
 
                     // Sanitize the HTML to prevent XSS
                     const sanitizedContent = DOMPurify.sanitize(htmlContent);
@@ -122,10 +124,11 @@ const FunctionCalling = () => {
                     return sanitizedContent;
                 };
                 // Prepare URL parameters
+                const sanitizedContent = await formatContent(description || ''); // Await the promise here
                 const params = new URLSearchParams({
-                    'token' : token,
+                    'token': token,
                     'post[title]': title || '',
-                    'post[content]': formatContent(description || ''),
+                    'post[content]': sanitizedContent, // Use the awaited result here
                 });
 
                 // Construct the API URL with content_id
