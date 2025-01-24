@@ -7,6 +7,7 @@ import Markdown from "react-markdown";
 // @ts-expect-error - no types for this yet
 import {AssistantStreamEvent} from "openai/resources/beta/assistants/assistants";
 import {RequiredActionFunctionToolCall} from "openai/resources/beta/threads/runs/runs";
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 type MessageRole = "user" | "assistant" | "code";
 
@@ -40,8 +41,22 @@ interface BackendResponse {
     threads: string[]; // An array of thread IDs
 }
 
-// Backend API functions
-const fetchThreadsFromBackend = async (userToken: string): Promise<BackendResponse> => {
+const THREADS_STORAGE_KEY = 'cached_thread_ids';
+
+const getThreadsFromLocalStorage = (): string[] => {
+    if (typeof window === 'undefined') return [];
+
+    const storedThreads = localStorage.getItem(THREADS_STORAGE_KEY);
+    return storedThreads ? JSON.parse(storedThreads) : [];
+};
+
+const saveThreadsToLocalStorage = (threads: string[]) => {
+    if (typeof window === 'undefined') return;
+
+    localStorage.setItem(THREADS_STORAGE_KEY, JSON.stringify(threads));
+};
+
+const fetchThreadsFromBackend = async (userToken: string): Promise<{ threads: string[] }> => {
     try {
         const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
         const response = await fetch(`${apiUrl}/api/v1/chat_threads`, {
@@ -55,15 +70,41 @@ const fetchThreadsFromBackend = async (userToken: string): Promise<BackendRespon
             throw new Error('Failed to fetch threads');
         }
 
-        return await response.json(); // Assumes the response has a `threads` property
+        const data = await response.json();
+        // Save the fetched threads to localStorage
+        saveThreadsToLocalStorage(data.threads);
+        return data;
     } catch (error) {
         console.error('Error fetching threads:', error);
-        return {threads: []}; // Return an empty structure on error
+        return { threads: [] };
     }
 };
+
 const syncThreadWithBackend = async (thread: Thread, userToken: string) => {
     try {
+        // First check in localStorage
+        const cachedThreads = getThreadsFromLocalStorage();
+        let threadExists = cachedThreads.includes(thread.id);
+
+        if (!threadExists) {
+            // If not found in localStorage, check backend
+            const backendResponse = await fetchThreadsFromBackend(userToken);
+            threadExists = backendResponse.threads.includes(thread.id);
+        }
+
+        // If thread exists either in localStorage or backend, skip the sync
+        if (threadExists) {
+            return;
+        }
+
         const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+        // Get the user's fingerprint
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        const fingerprint = result.visitorId;
+
+        // Send thread ID, IP, and fingerprint to the backend
         const response = await fetch(`${apiUrl}/api/v1/chat_threads`, {
             method: 'POST',
             headers: {
@@ -71,13 +112,19 @@ const syncThreadWithBackend = async (thread: Thread, userToken: string) => {
                 'Authorization': `${userToken}`
             },
             body: JSON.stringify({
-                thread_id: thread.id
+                thread_id: thread.id,
+                fingerprint: fingerprint
             })
         });
 
         if (!response.ok) {
             throw new Error('Failed to sync thread with backend');
         }
+
+        // After successful sync, update localStorage with the new thread
+        const updatedThreads = [...cachedThreads, thread.id];
+        saveThreadsToLocalStorage(updatedThreads);
+
     } catch (error) {
         console.error('Error syncing thread with backend:', error);
     }
@@ -316,7 +363,7 @@ const Chat = ({
         if (threads.length > 0 && userToken) {
             localStorage.setItem(`${STORAGE_KEYS.THREADS}_${userToken}`, JSON.stringify(threads));
             threads.forEach(thread => {
-                syncThreadWithBackend(thread, userToken);
+                // syncThreadWithBackend(thread, userToken);
             });
         }
     }, [threads, userToken]);
@@ -428,14 +475,76 @@ const Chat = ({
                 throw new Error('Failed to send message');
             }
 
-            const stream = AssistantStream.fromReadableStream(response.body);
-            handleReadableStream(stream);
+            // Create a TransformStream to process the data without modifying it
+            const transformStream = new TransformStream({
+                transform(chunk, controller) {
+                    try {
+                        const text = new TextDecoder().decode(chunk);
+                        const data = JSON.parse(text);
+
+                        // Check specifically for message_creation event
+                        if (data.event === 'thread.run.step.completed' &&
+                            data.data?.type === 'message_creation') {
+                            const usage = data.data.usage;
+                            if (usage?.completion_tokens) {
+                                // Store only the completion tokens
+                                (window as any).completionTokens = usage.completion_tokens;
+                            }
+                        }
+
+                        // Always forward the chunk to maintain message display
+                        controller.enqueue(chunk);
+                    } catch (error) {
+                        // If there's an error parsing, just forward the chunk
+                        controller.enqueue(chunk);
+                    }
+                }
+            });
+
+            // Create a new stream that includes our transform
+            const transformedBody = response.body?.pipeThrough(transformStream);
+            const stream = AssistantStream.fromReadableStream(transformedBody);
+
+            // Handle the end of the stream for token processing
+            stream.on('end', async () => {
+                const completionTokens = (window as any).completionTokens;
+                if (completionTokens > 0) {
+                    try {
+                        const tokenResponse = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/tokens/decrease`, {
+                            method: "POST",
+                            headers: {
+                                'Authorization': `Bearer ${userToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                utoken: userToken,
+                                decrement_by: completionTokens,
+                            }),
+                        });
+
+                        if (!tokenResponse.ok) {
+                            throw new Error('Failed to decrement tokens');
+                        }
+
+                        const tokenData = await tokenResponse.json();
+
+                        // Clean up our temporary storage
+                        delete (window as any).completionTokens;
+                    } catch (error) {
+                        console.error('Error updating tokens:', error);
+                    }
+                }
+            });
+
+            // Process the stream normally to display messages
+            await handleReadableStream(stream);
+
         } catch (error) {
-            console.error('Error sending message:', error);
+            console.error('Error:', error);
+        } finally {
             setInputDisabled(false);
         }
     };
-
     const submitActionResult = async (runId: string, toolCallOutputs: any[]) => {
         try {
             const response = await fetch(
@@ -465,18 +574,57 @@ const Chat = ({
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Ensure user input is not empty
         if (!userInput.trim()) return;
 
-        sendMessage(userInput);
-        setMessages((prevMessages) => [
-            ...prevMessages,
-            {role: "user", text: userInput},
-        ]);
-        setUserInput("");
-        setInputDisabled(true);
-        scrollToBottom();
+        try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+            // Get the user's fingerprint
+            const fp = await FingerprintJS.load();
+            const result = await fp.get();
+            const fingerprint = result.visitorId;
+            // Send a request to the backend to check the token
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/tokens`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    fingerprint: fingerprint,
+                    utoken: userToken
+                }),
+            });
+
+            const data = await response.json();
+
+            if (data.tokens > 0) {
+                // If tokens are valid, proceed with the normal task
+                sendMessage(userInput);
+                setMessages((prevMessages) => [
+                    ...prevMessages,
+                    { role: 'user', text: userInput },
+                ]);
+                setUserInput('');
+                scrollToBottom();
+            } else {
+                setMessages((prevMessages) => [
+                    ...prevMessages,
+                    {
+                        role: 'assistant',
+                        text: 'Your token limit has been exceeded. Please come back in 24 hours.'
+                    }
+                ]);
+            }
+        } catch (error) {
+            console.error('Error checking tokens:', error);
+            alert('An error occurred while checking tokens. Please try again.');
+        } finally {
+            setInputDisabled(false);
+        }
     };
 
     const handleTextCreated = () => {
@@ -545,7 +693,6 @@ const Chat = ({
                     ? {...thread, ...updates}
                     : thread
             );
-
             const updatedThread = newThreads.find(t => t.id === threadId);
             // if (updatedThread && userToken) {
             //     syncThreadWithBackend(updatedThread, userToken);
