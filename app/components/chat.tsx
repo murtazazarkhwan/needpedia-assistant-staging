@@ -400,9 +400,14 @@ const Chat = ({
             const data = await res.json();
 
             // Initialize with a welcome message instead of fetching messages
+            const searchParams = new URLSearchParams(window.location.search);
+            const isFirstTime = searchParams.get("firsttime") === "true";
+
             const initialMessage = {
                 role: "assistant" as MessageRole,
-                text: process.env.NEXT_PUBLIC_INITIAL_MESSAGE_TEXT || "👋Welcome! How can I help you today with Needpedia?"
+                text: isFirstTime
+                    ? process.env.NEXT_PUBLIC_FIRSTTIME_MESSAGE || "👋 Welcome to Needpedia for the first time!"
+                    : process.env.NEXT_PUBLIC_INITIAL_MESSAGE_TEXT || "👋 Welcome! How can I help you today with Needpedia?"
             };
 
             const newThread: Thread = {
