@@ -57,6 +57,11 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 - \`NEXT_PUBLIC_API_BASE_URL\`: Base URL for your app/backend (also used for headers) (optional)
 - \`POST_TOKEN\`: Token for API requests (optional)
 
+## Development Guidelines
+
+### Build Verification
+⚠️ **Important Rule**: After any changes in this project, always run `npm run build` to verify the build works correctly before committing or deploying. This prevents build failures in production environments.
+
 ## Built With
 
 - [Next.js](https://nextjs.org/)

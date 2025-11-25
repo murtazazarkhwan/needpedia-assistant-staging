@@ -122,8 +122,8 @@ const ensureVisibleContent = (raw: string): string => {
 };
 
 const getReasoningContent = (message: Message): string => {
-  const candidate = (message as Record<string, unknown>).reasoning;
-  return typeof candidate === 'string' ? candidate : '';
+  const extendedMessage = message as Message & { reasoning?: string };
+  return typeof extendedMessage.reasoning === 'string' ? extendedMessage.reasoning : '';
 };
 
 const applyBasicInlineFormatting = (text: string, keyPrefix: string): React.ReactNode[] => {
@@ -415,10 +415,10 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
         usedTokens?: number;
         error?: string | { message?: string };
       };
-      
+
       if (!response.ok) {
-        const errorMessage = typeof data.error === 'string' 
-          ? data.error 
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
           : data.error?.message || JSON.stringify(data.error) || 'Failed to send message';
         throw new Error(errorMessage);
       }
@@ -458,7 +458,16 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       
       // Append only the assistant message because the user message was optimistically added
       if (assistantMessage) {
-        setMessages(prev => [...prev, assistantMessage]);
+        // Extract only the standard message properties to avoid type conflicts
+        const cleanAssistantMessage: Message = {
+          role: assistantMessage.role,
+          content: assistantMessage.content,
+          function_call: assistantMessage.function_call,
+          tool_calls: assistantMessage.tool_calls,
+          tool_call_id: assistantMessage.tool_call_id,
+          name: assistantMessage.name
+        };
+        setMessages(prev => [...prev, cleanAssistantMessage]);
       }
 
       // Notify sidebar about token usage to update HP bar immediately
@@ -611,7 +620,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <span suppressHydrationWarning>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </span>
                 </div>
                 <div className={`prose prose-sm max-w-none break-words overflow-wrap-anywhere whitespace-pre-wrap leading-relaxed text-sm sm:text-base ${message.role === 'user' ? 'prose-invert' : ''}`}>
