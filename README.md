@@ -60,7 +60,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## Development Guidelines
 
 ### Build Verification
-⚠️ **Important Rule**: After any changes in this project, always run `npm run build` to verify the build works correctly before committing or deploying. This prevents build failures in production environments.
+**Important Rule**: After any changes in this project, always run `npm run build` to verify the build works correctly before committing or deploying. This prevents build failures in production environments.
 
 ## Built With
 
