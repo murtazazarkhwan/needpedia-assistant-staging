@@ -342,6 +342,17 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
   const [error, setError] = useState('');
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea as user types
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      const scrollHeight = textareaRef.current.scrollHeight;
+      // Set a maximum height to prevent the textarea from becoming too large
+      textareaRef.current.style.height = `${Math.min(scrollHeight, 200)}px`;
+    }
+  }, [input]);
 
   const loadConversationHistory = useCallback(async (id: string) => {             
     try {
@@ -666,33 +677,36 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
         )}
         <form onSubmit={handleSubmit} className="flex gap-2 sm:gap-3">
           <div className="flex-1 relative">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message... (Ctrl+Enter to send, Esc to clear)"
-              className="w-full p-2 sm:p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all text-gray-800 placeholder-gray-400 text-sm sm:text-base pr-10 bg-white"
-              disabled={isLoading}
-              autoComplete="off"
-              spellCheck="true"
-            />
-            {input && (
-              <button
-                type="button"
-                onClick={() => setInput('')}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Clear input"
-              >
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type your message... (Ctrl+Enter to send, Esc to clear)"
+                className="w-full p-2 sm:p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all text-gray-800 placeholder-gray-400 text-sm sm:text-base pr-10 bg-white resize-none"
+                disabled={isLoading}
+                autoComplete="off"
+                spellCheck="true"
+                rows={1}
+              />
+              {input && (
+                <button
+                  type="button"
+                  onClick={() => setInput('')}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full transition-colors z-10"
+                  title="Clear input"
+                >
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
           <button
             type="submit"
             disabled={isLoading || !input.trim()}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base flex items-center gap-2"
+            className="px-4 sm:px-6 py-2 sm:py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base flex items-center gap-2 self-end"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

@@ -43,6 +43,9 @@ interface CreateContentArgs {
   content_type: string;
   parent_id?: string;
   confirm?: boolean;
+  // Optional explicit tags provided by the model/tool call
+  tag_list?: string[] | string;
+  resource_tag_list?: string[] | string;
 }
 
 interface EditContentArgs {
@@ -50,6 +53,9 @@ interface EditContentArgs {
   changes: {
     title?: string;
     description?: string;
+    // Optional explicit tags provided by the model/tool call
+    tag_list?: string[] | string;
+    resource_tag_list?: string[] | string;
   };
   confirm?: boolean;
 }
@@ -130,6 +136,9 @@ interface CreatePostPayload {
     };
     subject_id?: string;
     problem_id?: string;
+    // Hashtags extracted from user input (without the # symbol), sent as comma-separated strings
+    tag_list?: string;
+    resource_tag_list?: string;
   };
 }
 
@@ -188,6 +197,44 @@ const isCreateContentArgs = (args: FunctionArgs): args is CreateContentArgs => {
 
 const isEditContentArgs = (args: FunctionArgs): args is EditContentArgs => {
   return 'content_id' in args && 'changes' in args;
+};
+
+// Normalize a raw tag string into a consistent form for Needpedia.
+// - lowercases
+// - strips trailing punctuation
+// - removes non-alphanumeric/underscore/dash characters
+const normalizeTag = (rawTag: string): string => {
+  return rawTag
+    .replace(/[.,;:!?]+$/g, '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .toLowerCase();
+};
+
+// Extract hashtags (words starting with #) from a text body and return
+// the cleaned text (without the hashtags) plus a normalized tag array.
+// Examples:
+//  - "This is about #ClimateChange and #innovation!" =>
+//      cleanText: "This is about and!"
+//      tags: ["climatechange", "innovation"]
+const extractHashtags = (input: string): { cleanText: string; tags: string[] } => {
+  if (!input) return { cleanText: '', tags: [] };
+
+  const tagSet = new Set<string>();
+  // Match word-boundary or whitespace, then #tag
+  const withoutTags = input.replace(/(^|\s)#([^\s#]+)/g, (match, prefix: string, rawTag: string) => {
+    const normalized = normalizeTag(rawTag);
+
+    if (normalized.length > 0) {
+      tagSet.add(normalized);
+    }
+
+    // Remove the hashtag token from the visible body, keep prefix (space/newline)
+    return prefix || ' ';
+  });
+
+  const cleanText = withoutTags.replace(/\s{2,}/g, ' ').trim();
+  return { cleanText, tags: Array.from(tagSet) };
 };
 
 // Convert simple Markdown/plain text to minimal HTML suitable for rich text fields
@@ -321,12 +368,44 @@ const getFunctions = (userToken?: string): ToolMap => ({
       throw new Error('Invalid arguments for content creation');
     }
 
-    const htmlBody = toRichHtml(args.description || '');
+    // Prefer explicit tags provided by the tool call if present
+    const explicitTagsFromArgs = (() => {
+      const tags: string[] = [];
+      const pushFrom = (value?: string[] | string) => {
+        if (!value) return;
+        if (Array.isArray(value)) {
+          value.forEach(t => {
+            const n = normalizeTag(String(t || ''));
+            if (n) tags.push(n);
+          });
+        } else if (typeof value === 'string') {
+          value.split(',').forEach(part => {
+            const n = normalizeTag(part);
+            if (n) tags.push(n);
+          });
+        }
+      };
+      pushFrom(args.tag_list);
+      pushFrom(args.resource_tag_list);
+      return Array.from(new Set(tags));
+    })();
+
+    // If the model passed explicit tags, don't rely on inline #tags in description.
+    const shouldExtractFromBody = explicitTagsFromArgs.length === 0;
+    const extraction = shouldExtractFromBody
+      ? extractHashtags(args.description || '')
+      : { cleanText: args.description || '', tags: [] };
+    const { cleanText, tags: bodyTags } = extraction;
+    const allTags = explicitTagsFromArgs.length > 0 ? explicitTagsFromArgs : bodyTags;
+    const tagCsv = allTags.length > 0 ? allTags.join(',') : undefined;
+
+    const htmlBody = toRichHtml(cleanText);
     const plainText = htmlToPlainText(htmlBody);
     const previewPayload = {
       title: args.title,
       content_type: args.content_type,
-      description: args.description,
+      // Use cleaned description (without hashtags) for preview body
+      description: cleanText,
       html: htmlBody,
       plain_text: plainText,
       parent_id: args.parent_id
@@ -346,7 +425,14 @@ const getFunctions = (userToken?: string): ToolMap => ({
         post_type: args.content_type || '',
         content: {
           body: htmlBody
-        }
+        },
+        // Apply extracted hashtags to both tag_list and resource_tag_list fields
+        ...(tagCsv
+          ? {
+              tag_list: tagCsv,
+              resource_tag_list: tagCsv
+            }
+          : {})
       }
     };
 
@@ -382,13 +468,46 @@ const getFunctions = (userToken?: string): ToolMap => ({
     }
 
     const { content_id, changes } = args;
-    const { title, description } = changes;
-    const html = description ? toRichHtml(description) : undefined;
+    const { title, description, tag_list, resource_tag_list } = changes;
+
+    // Prefer explicit tags provided by the tool call if present
+    const explicitTagsFromArgs = (() => {
+      const tags: string[] = [];
+      const pushFrom = (value?: string[] | string) => {
+        if (!value) return;
+        if (Array.isArray(value)) {
+          value.forEach(t => {
+            const n = normalizeTag(String(t || ''));
+            if (n) tags.push(n);
+          });
+        } else if (typeof value === 'string') {
+          value.split(',').forEach(part => {
+            const n = normalizeTag(part);
+            if (n) tags.push(n);
+          });
+        }
+      };
+      pushFrom(tag_list);
+      pushFrom(resource_tag_list);
+      return Array.from(new Set(tags));
+    })();
+
+    const shouldExtractFromBody = !!description && explicitTagsFromArgs.length === 0;
+    const extraction = shouldExtractFromBody && description
+      ? extractHashtags(description)
+      : { cleanText: description, tags: [] as string[] };
+
+    const { cleanText, tags } = extraction;
+    const allTags = explicitTagsFromArgs.length > 0 ? explicitTagsFromArgs : tags;
+    const tagCsv = allTags.length > 0 ? allTags.join(',') : undefined;
+
+    const html = description ? toRichHtml((cleanText ?? '') as string) : undefined;
     const plainText = html ? htmlToPlainText(html) : undefined;
     const previewPayload = {
       content_id,
       title,
-      description,
+      // Show cleaned description without inline hashtags
+      description: cleanText,
       html,
       plain_text: plainText
     };
@@ -409,6 +528,13 @@ const getFunctions = (userToken?: string): ToolMap => ({
     if (description && html) {
       postData.post.content = { body: html };
       postData.post.content_attributes = { body: html };
+    }
+
+    // Only send tag fields when we actually have hashtags, so we don't
+    // accidentally clear existing tags on the backend when none are provided.
+    if (tagCsv) {
+      (postData.post as Record<string, unknown>).tag_list = tagCsv;
+      (postData.post as Record<string, unknown>).resource_tag_list = tagCsv;
     }
 
     const apiUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/posts/${content_id}/api_update`;
@@ -504,6 +630,16 @@ const availableTools = [
           confirm: {
             type: 'boolean',
             description: 'Set to true only after the user reviews the preview and approves creation.'
+          },
+          tag_list: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of hashtags (without the #) to apply to the post.'
+          },
+          resource_tag_list: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of resource tags (without the #) to apply to the post.'
           }
         },
         required: ['title', 'description', 'content_type'],
@@ -532,6 +668,16 @@ const availableTools = [
               description: {
                 type: 'string',
                 description: 'New description for the content',
+              },
+              tag_list: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional list of hashtags (without the #) to apply to the post.'
+              },
+              resource_tag_list: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional list of resource tags (without the #) to apply to the post.'
               }
             },
             description: 'The changes to apply to the content',
