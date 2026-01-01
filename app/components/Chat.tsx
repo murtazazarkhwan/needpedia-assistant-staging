@@ -13,7 +13,7 @@ interface ChatProps {
 // Helper function to filter out reasoning/thinking content
 const filterReasoning = (content: string): string => {
   if (!content) return content;
-  
+
   // If there's a stray closing </think>, drop everything before it (inclusive)
   // This ensures we only keep the visible answer after hidden reasoning
   const closingThinkIdx = content.toLowerCase().indexOf('</think>');
@@ -23,26 +23,26 @@ const filterReasoning = (content: string): string => {
 
   // Remove content within <think>...</think> blocks (case-insensitive, multiline)
   let filtered = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
-  
+
   // Remove other common reasoning patterns
   filtered = filtered.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
   filtered = filtered.replace(/<reasoning[^>]*>[\s\S]*?<\/reasoning>/gi, '');
-  
+
   // Remove content between <!-- think --> and <!-- /think --> (comment-based thinking)
   filtered = filtered.replace(/<!--\s*think\s*-->[\s\S]*?<!--\s*\/think\s*-->/gi, '');
-  
+
   // Remove lines that are entirely reasoning content (common in some models)
   filtered = filtered.split('\n').filter(line => {
     const lowerLine = line.toLowerCase().trim();
-    return !lowerLine.startsWith('thinking:') && 
-           !lowerLine.startsWith('[reasoning') &&
-           !lowerLine.startsWith('internal:') &&
-           !lowerLine.includes('[thinking]');
+    return !lowerLine.startsWith('thinking:') &&
+      !lowerLine.startsWith('[reasoning') &&
+      !lowerLine.startsWith('internal:') &&
+      !lowerLine.includes('[thinking]');
   }).join('\n');
-  
+
   // Clean up multiple consecutive newlines (max 2)
   filtered = filtered.replace(/\n{3,}/g, '\n\n');
-  
+
   // Clean up any extra whitespace at start/end
   return filtered.trim();
 };
@@ -72,19 +72,19 @@ const stripToolCallArtifacts = (content: string): string => {
 // Helper function to convert URLs in text to clickable links
 const linkify = (content: string): React.ReactNode => {
   if (!content) return content;
-  
+
   // URL regex pattern - matches http, https, and other URLs
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
-  
+
   while ((match = urlRegex.exec(content)) !== null) {
     // Add text before URL
     if (match.index > lastIndex) {
       parts.push(content.substring(lastIndex, match.index));
     }
-    
+
     // Add clickable link
     const url = match[0];
     parts.push(
@@ -99,15 +99,15 @@ const linkify = (content: string): React.ReactNode => {
         {url}
       </a>
     );
-    
+
     lastIndex = urlRegex.lastIndex;
   }
-  
+
   // Add remaining text
   if (lastIndex < content.length) {
     parts.push(content.substring(lastIndex));
   }
-  
+
   return parts.length > 0 ? parts : content;
 };
 
@@ -255,6 +255,13 @@ interface PersistedMessagePayload {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
+// AI mode display names are configured via env so they can be tweaked
+// without code changes.
+const DEFAULT_AI_MODE_NAME =
+  process.env.NEXT_PUBLIC_AI_MODE_DEFAULT_NAME || 'Full Lotte';
+const ECO_AI_MODE_NAME =
+  process.env.NEXT_PUBLIC_AI_MODE_ECO_NAME || 'Eco (Open Source)';
+
 const buildPreviewText = (text: string, maxLength: number): string => {
   if (!text) return '';
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
@@ -340,9 +347,29 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [aiMode, setAiMode] = useState<'default' | 'eco'>('default');
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
 
   // Auto-resize textarea as user types
   useEffect(() => {
@@ -354,7 +381,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
     }
   }, [input]);
 
-  const loadConversationHistory = useCallback(async (id: string) => {             
+  const loadConversationHistory = useCallback(async (id: string) => {
     try {
       const response = await fetch('/api/chat/history', {
         method: 'POST',
@@ -372,7 +399,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
           const rawContent = msg.content || getReasoningContent(msg);
           return { ...msg, content: ensureVisibleContent(rawContent) };
         });
-        
+
         setMessages(filteredMessages);
       } else {
         setMessages([]);
@@ -417,6 +444,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
           messages: [userMessage],
           conversationId: currentConversationId,
           userToken: userId || undefined,
+          aiMode,
         }),
       });
 
@@ -466,7 +494,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
 
         persistedMessages.push(assistantPayload);
       }
-      
+
       // Append only the assistant message because the user message was optimistically added
       if (assistantMessage) {
         // Extract only the standard message properties to avoid type conflicts
@@ -487,7 +515,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
         if (!isNaN(used) && used > 0) {
           window.dispatchEvent(new CustomEvent('np_tokens_used', { detail: { used } }));
         }
-      } catch {}
+      } catch { }
 
       // Update conversation ID if it's new
       if (data.conversationId && data.conversationId !== currentConversationId) {
@@ -511,7 +539,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       const message = err instanceof Error ? err.message : 'Failed to send message. Please try again.';
       setError(message);
     }
-  }, [currentConversationId, onConversationChange, userId]);
+  }, [currentConversationId, onConversationChange, userId, aiMode]);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent | KeyboardEvent) => {
     e?.preventDefault();
@@ -553,52 +581,52 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
 
   return (
     <div className={`flex flex-col h-full bg-gray-50 ${noBorder ? '' : 'rounded-lg shadow-xl border border-gray-200'}`}>
-      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4">
         {messages.length === 0 && (
-          <div className="text-center text-gray-500 my-6 sm:my-8">
-            <div className="flex justify-center mb-4">
+          <div className="text-center text-gray-500 max-w-md mx-auto py-8">
+            <div className="flex justify-center mb-6">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
                 <svg className="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
               </div>
             </div>
-            <p className="text-base sm:text-lg font-medium flex items-center justify-center gap-2">
-              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <p className="text-xl font-semibold text-gray-800 mb-2 flex items-center justify-center gap-2">
+              <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
               Welcome to Needpedia!
             </p>
-            <p className="mt-2 text-sm sm:text-base">I&apos;m Lotte, your AI librarian. I can help you create ideas, browse content, and navigate Needpedia.</p>
-            <p className="mt-4 text-xs sm:text-sm font-medium flex items-center justify-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <p className="text-gray-600 mb-6">I&apos;m Lotte, your AI librarian. I can help you create ideas, browse content, and navigate Needpedia.</p>
+            <p className="text-sm font-medium text-gray-700 mb-4 flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               Try asking me to:
             </p>
-            <ul className="mt-2 text-xs sm:text-sm space-y-2">
-              <li className="flex items-center justify-center gap-2">
-                <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <ul className="space-y-3">
+              <li className="flex items-start justify-start gap-3 text-left">
+                <svg className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Create a new idea about bike lanes
+                <span className="text-gray-700">Create a new idea about bike lanes</span>
               </li>
-              <li className="flex items-center justify-center gap-2">
-                <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <li className="flex items-start justify-start gap-3 text-left">
+                <svg className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                Search for existing ideas about climate change
+                <span className="text-gray-700">Search for existing ideas about climate change</span>
               </li>
-              <li className="flex items-center justify-center gap-2">
-                <svg className="w-3 h-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <li className="flex items-start justify-start gap-3 text-left">
+                <svg className="w-4 h-4 text-purple-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                 </svg>
-                Help you navigate subjects and problems
+                <span className="text-gray-700">Help you navigate subjects and problems</span>
               </li>
             </ul>
           </div>
         )}
-        <div className="space-y-3 sm:space-y-4">
+        <div className="space-y-4 pb-16">
           {messages.map((message, index) => (
             <div
               key={index}
@@ -606,11 +634,10 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
               style={{ animationDelay: `${index * 100}ms` }}
             >
               <div
-                className={`relative p-3 sm:p-4 rounded-2xl shadow-sm max-w-[90%] sm:max-w-[85%] break-words transition-all duration-200 hover:shadow-md ${
-                  message.role === 'user'
-                    ? 'bg-black text-white hover:bg-gray-900'
-                    : 'bg-white text-gray-800 border border-gray-200 hover:border-gray-300'
-                }`}
+                className={`relative p-3 sm:p-4 rounded-2xl shadow-sm max-w-[90%] sm:max-w-[85%] break-words transition-all duration-200 hover:shadow-md ${message.role === 'user'
+                  ? 'bg-black text-white hover:bg-gray-900'
+                  : 'bg-white text-gray-800 border border-gray-200 hover:border-gray-300'
+                  }`}
                 style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
               >
                 <div className="text-xs sm:text-sm opacity-75 mb-1 sm:mb-2 flex items-center gap-2">
@@ -665,54 +692,129 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
         )}
         <div ref={messagesEndRef} />
       </div>
-      
+
       <div className="border-t bg-white p-3 sm:p-4 rounded-b-lg">
         {error && (
-          <div className="mb-3 sm:mb-4 p-2 sm:p-3 text-xs sm:text-sm text-red-500 bg-red-50 rounded-lg flex items-center gap-2">
+          <div className="mb-3 p-3 text-sm text-red-700 bg-red-50 rounded-lg flex items-center gap-2 border border-red-100">
             <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span>{error}</span>
           </div>
         )}
-        <form onSubmit={handleSubmit} className="flex gap-2 sm:gap-3">
-          <div className="flex-1 relative">
-            <div className="relative">
+        <form onSubmit={handleSubmit}>
+          <div className="flex items-end gap-2 sm:gap-3 bg-gray-50 border border-gray-200 rounded-xl p-2 sm:p-3 shadow-sm hover:shadow-md transition-shadow">
+            {/* Center input field */}
+            <div className="flex-1 relative min-w-0">
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message... (Ctrl+Enter to send, Esc to clear)"
-                className="w-full p-2 sm:p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all text-gray-800 placeholder-gray-400 text-sm sm:text-base pr-10 bg-white resize-none"
+                placeholder="How can I help you today?"
+                className="w-full pl-3 pr-10 py-2.5 bg-transparent border-none focus:outline-none resize-none text-gray-800 placeholder-gray-500 text-sm sm:text-base overflow-y-auto"
                 disabled={isLoading}
                 autoComplete="off"
                 spellCheck="true"
                 rows={1}
+                style={{ maxHeight: '120px', minHeight: '40px' }}
               />
               {input && (
                 <button
                   type="button"
                   onClick={() => setInput('')}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full transition-colors z-10"
+                  className="absolute right-6 top-2 p-1.5 bg-gray-200/80 hover:bg-gray-300 rounded-full transition-all duration-200 hover:scale-110 group"
                   title="Clear input"
                 >
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg className="w-3.5 h-3.5 text-gray-600 group-hover:text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               )}
             </div>
+
+            {/* Divider - hidden on mobile */}
+            <div className="hidden sm:block h-8 w-px bg-gray-300 flex-shrink-0"></div>
+
+            {/* Right side: AI mode selector - custom dropdown (now responsive for all screens) */}
+            <div className="relative flex-shrink-0" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="appearance-none bg-white border border-gray-300 rounded-lg py-2 pl-3 pr-3 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all hover:bg-gray-50 whitespace-nowrap flex items-center gap-1 sm:gap-2 h-10"
+                title="Select AI mode"
+              >
+                <span className="hidden sm:inline">{aiMode === 'default' ? DEFAULT_AI_MODE_NAME : ECO_AI_MODE_NAME}</span>
+                <span className="sm:hidden">
+                  {aiMode === 'default' ? 'Full' : 'Eco'}
+                </span>
+                <svg
+                  className={`h-3 w-3 sm:h-4 sm:w-4 text-gray-500 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown menu - opens upward to avoid being cut off */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 bottom-full mb-2 w-56 sm:w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2 max-h-[60vh] overflow-y-auto">
+                  {/* Default AI Mode Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiMode('default');
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-left hover:bg-gray-50 transition-colors flex items-start justify-between group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900 text-xs sm:text-sm mb-0.5 truncate">{DEFAULT_AI_MODE_NAME}</div>
+                      <div className="text-xs text-gray-500">Best for everyday tasks</div>
+                    </div>
+                    {aiMode === 'default' && (
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 flex-shrink-0 mt-0.5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+
+                  {/* Eco AI Mode Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiMode('eco');
+                      setIsDropdownOpen(false);
+                    }}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-left hover:bg-gray-50 transition-colors flex items-start justify-between group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900 text-xs sm:text-sm mb-0.5 truncate">{ECO_AI_MODE_NAME}</div>
+                      <div className="text-xs text-gray-500">Fastest for quick answers</div>
+                    </div>
+                    {aiMode === 'eco' && (
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 flex-shrink-0 mt-0.5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Send button */}
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="p-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0 h-10 w-10"
+              title="Send message"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              </svg>
+            </button>
           </div>
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base flex items-center gap-2 self-end"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-            <span className="hidden sm:inline">Send</span>
-          </button>
         </form>
       </div>
     </div>

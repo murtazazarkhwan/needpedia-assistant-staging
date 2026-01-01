@@ -698,11 +698,13 @@ export async function POST(req: Request) {
     const {
       messages = [],
       conversationId,
-      userToken
+      userToken,
+      aiMode,
     } = await req.json() as {
       messages?: Message[];
       conversationId?: string;
       userToken?: string;
+      aiMode?: string;
     };
 
     const id: string = conversationId || randomUUID();
@@ -736,8 +738,12 @@ export async function POST(req: Request) {
       throw new Error('OpenRouter API key is not configured');
     }
 
-    // Use the model from environment variable, fallback to default
-    const model = process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free';
+    // Select model based on requested AI mode. This lets us route between
+    // a full-capability model and a lighter, eco-friendly open-source one.
+    const defaultModel = process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free';
+    const ecoModel = process.env.OPENROUTER_ECO_MODEL || defaultModel;
+    const requestedMode = (aiMode || 'default').toLowerCase();
+    const model = requestedMode === 'eco' ? ecoModel : defaultModel;
     
     // Track total tokens used across one logical response
     let usedTokens = 0;

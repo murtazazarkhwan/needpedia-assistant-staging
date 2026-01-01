@@ -43,7 +43,7 @@ export default function PageContent() {
   useEffect(() => {
     try {
       window.localStorage.setItem('np_sidebar_open', showSidebar ? 'true' : 'false');
-    } catch {}
+    } catch { }
   }, [showSidebar]);
 
   // Close on Escape key
