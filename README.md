@@ -1,6 +1,6 @@
 # Next.js Chat Application with OpenRouter Integration
 
-A modern chat application built with Next.js that integrates with OpenRouter API to provide AI-powered conversations using the Qwen-2.5 model.
+A modern chat application built with Next.js that integrates with OpenRouter API to provide AI-powered conversations using the deepseek/deepseek-v3.2-exp model.
 
 ## Features
 
