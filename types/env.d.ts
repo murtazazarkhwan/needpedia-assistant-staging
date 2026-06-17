@@ -4,5 +4,6 @@ declare namespace NodeJS {
     OPENROUTER_MODEL: string; // The model to use for the chat
     NEXT_PUBLIC_API_BASE_URL?: string;
     POST_TOKEN?: string;
+    AI_KNOWLEDGE_BASE_TOKEN?: string;
   }
 }

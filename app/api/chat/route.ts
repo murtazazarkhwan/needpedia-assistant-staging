@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Message } from '@/types/chat';
-import { SYSTEM_PROMPT } from '@/app/prompts/system';
+import { SYSTEM_PROMPT as DEFAULT_SYSTEM_PROMPT } from '@/app/prompts/system';
 import axios from 'axios';
 import { conversationStore } from '@/utils/memory';
 import { saveConversationToDisk } from '@/utils/conversationPersistence';
@@ -31,6 +31,79 @@ const openRouterClient = axios.create({
 // Limit the number of prior messages sent to the model to cut prompt latency
 const MAX_CONTEXT_MESSAGES = Number(process.env.CHAT_MAX_CONTEXT || 16);
 const MAX_STORED_MESSAGES = Number(process.env.CHAT_MAX_STORED || 64);
+
+// Fetched system prompt cache (fetched once from the knowledge base API)
+let cachedSystemPrompt: string | null = null;
+
+const URL_REGEX = /https?:\/\/[^\s,;)\]}'"]+/g;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 5000);
+}
+
+async function fetchUrlContent(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return '';
+    const html = await res.text();
+    const text = stripHtml(html);
+    return text ? `\nContent from ${url}:\n${text}` : '';
+  } catch {
+    return '';
+  }
+}
+
+async function getSystemPrompt(): Promise<string> {
+  if (cachedSystemPrompt) return cachedSystemPrompt;
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const token = process.env.AI_KNOWLEDGE_BASE_TOKEN;
+
+  if (!baseUrl || !token) {
+    cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+    return cachedSystemPrompt;
+  }
+
+  const url = `${baseUrl}/api/v1/ai_prompt?ai_type=Lotte&token=${encodeURIComponent(token)}`;
+
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      throw new Error(`Knowledge base API returned ${response.status}`);
+    }
+    const data = await response.json();
+    let prompt = data.content ?? data.prompt ?? data.system_prompt ?? JSON.stringify(data);
+    if (typeof prompt !== 'string' || !prompt) {
+      throw new Error('No valid prompt string in response');
+    }
+
+    // Extract URLs from the prompt and fetch their content as context
+    const urls = [...new Set<string>((prompt.match(URL_REGEX) || []).map(u => u.replace(/[.,;:!?]+$/, '')))];
+    if (urls.length > 0) {
+      const results = await Promise.allSettled(urls.map(fetchUrlContent));
+      const context = results.map(r => r.status === 'fulfilled' ? r.value : '').filter(Boolean).join('\n');
+      if (context) {
+        prompt += '\n\n## Referenced Content\n' + context;
+      }
+    }
+
+    cachedSystemPrompt = prompt;
+  } catch (error) {
+    console.error('Failed to fetch system prompt from knowledge base:', error);
+    cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+  }
+  return cachedSystemPrompt;
+}
 
 interface FindContentArgs {
   query: string;
@@ -722,7 +795,7 @@ export async function POST(req: Request) {
 
     const baseHistory: Message[] = hasSystem
       ? existingHistory
-      : [{ role: 'system', content: SYSTEM_PROMPT }, ...existingHistory];
+      : [{ role: 'system', content: await getSystemPrompt() }, ...existingHistory];
 
     // Reduce context size to speed up prompt and model latency
     const requestMessages: Message[] = (() => {
