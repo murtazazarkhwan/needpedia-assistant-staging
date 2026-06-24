@@ -98,8 +98,7 @@ async function getSystemPrompt(): Promise<string> {
     }
 
     cachedSystemPrompt = prompt;
-  } catch (error) {
-    console.error('Failed to fetch system prompt from knowledge base:', error);
+  } catch {
     cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
   }
   return cachedSystemPrompt;
@@ -773,11 +772,13 @@ export async function POST(req: Request) {
       conversationId,
       userToken,
       aiMode,
+      systemPrompt,
     } = await req.json() as {
       messages?: Message[];
       conversationId?: string;
       userToken?: string;
       aiMode?: string;
+      systemPrompt?: string;
     };
 
     const id: string = conversationId || randomUUID();
@@ -793,9 +794,11 @@ export async function POST(req: Request) {
     const existingHistory = conversationStore.get(id) || [];
     const hasSystem = existingHistory.some(m => m.role === 'system');
 
+    const resolvedPrompt = systemPrompt || await getSystemPrompt();
+
     const baseHistory: Message[] = hasSystem
       ? existingHistory
-      : [{ role: 'system', content: await getSystemPrompt() }, ...existingHistory];
+      : [{ role: 'system', content: resolvedPrompt }, ...existingHistory];
 
     // Reduce context size to speed up prompt and model latency
     const requestMessages: Message[] = (() => {
