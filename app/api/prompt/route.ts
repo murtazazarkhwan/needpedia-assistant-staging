@@ -17,9 +17,25 @@ function stripHtml(html: string): string {
     .substring(0, 5000);
 }
 
+function resolveUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hash && parsed.hash.length > 1) {
+      const fragment = decodeURIComponent(parsed.hash.slice(1));
+      if (fragment.endsWith('.html') || fragment.endsWith('.md')) {
+        parsed.hash = '';
+        parsed.pathname = '/' + fragment.replace(/^\//, '');
+        return parsed.toString();
+      }
+    }
+  } catch {}
+  return url;
+}
+
 async function fetchUrlContent(url: string): Promise<string> {
   try {
-    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+    const resolved = resolveUrl(url);
+    const res = await fetch(resolved, { method: 'GET', signal: AbortSignal.timeout(8000) });
     if (!res.ok) return '';
     const html = await res.text();
     const text = stripHtml(html);
@@ -30,9 +46,11 @@ async function fetchUrlContent(url: string): Promise<string> {
 }
 
 let cachedSystemPrompt: string | null = null;
+let cachedPromptExpiry = 0;
+const PROMPT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 async function getSystemPrompt(): Promise<string> {
-  if (cachedSystemPrompt) return cachedSystemPrompt;
+  if (cachedSystemPrompt && Date.now() < cachedPromptExpiry) return cachedSystemPrompt;
 
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
   const token = process.env.AI_KNOWLEDGE_BASE_TOKEN;
@@ -65,8 +83,10 @@ async function getSystemPrompt(): Promise<string> {
     }
 
     cachedSystemPrompt = prompt;
+    cachedPromptExpiry = Date.now() + PROMPT_CACHE_TTL_MS;
   } catch {
     cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+    cachedPromptExpiry = Date.now() + PROMPT_CACHE_TTL_MS;
   }
   return cachedSystemPrompt;
 }
