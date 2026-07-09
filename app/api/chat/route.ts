@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Message } from '@/types/chat';
-import { SYSTEM_PROMPT } from '@/app/prompts/system';
+import { SYSTEM_PROMPT as DEFAULT_SYSTEM_PROMPT } from '@/app/prompts/system';
 import axios from 'axios';
 import { conversationStore } from '@/utils/memory';
 import { saveConversationToDisk } from '@/utils/conversationPersistence';
@@ -31,6 +31,98 @@ const openRouterClient = axios.create({
 // Limit the number of prior messages sent to the model to cut prompt latency
 const MAX_CONTEXT_MESSAGES = Number(process.env.CHAT_MAX_CONTEXT || 16);
 const MAX_STORED_MESSAGES = Number(process.env.CHAT_MAX_STORED || 64);
+
+// Fetched system prompt cache with TTL so it refreshes periodically
+let cachedSystemPrompt: string | null = null;
+let cachedPromptExpiry = 0;
+const PROMPT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+const URL_REGEX = /https?:\/\/[^\s,;)\]}'"]+/g;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 5000);
+}
+
+function resolveUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hash && parsed.hash.length > 1) {
+      const fragment = decodeURIComponent(parsed.hash.slice(1));
+      if (fragment.endsWith('.html') || fragment.endsWith('.md')) {
+        parsed.hash = '';
+        parsed.pathname = '/' + fragment.replace(/^\//, '');
+        return parsed.toString();
+      }
+    }
+  } catch {}
+  return url;
+}
+
+async function fetchUrlContent(url: string): Promise<string> {
+  try {
+    const resolved = resolveUrl(url);
+    const res = await fetch(resolved, { method: 'GET', signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return '';
+    const html = await res.text();
+    const text = stripHtml(html);
+    return text ? `\nContent from ${url}:\n${text}` : '';
+  } catch {
+    return '';
+  }
+}
+
+async function getSystemPrompt(): Promise<string> {
+  if (cachedSystemPrompt && Date.now() < cachedPromptExpiry) return cachedSystemPrompt;
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const token = process.env.AI_KNOWLEDGE_BASE_TOKEN;
+
+  if (!baseUrl || !token) {
+    cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+    return cachedSystemPrompt;
+  }
+
+  const url = `${baseUrl}/api/v1/ai_prompt?ai_type=Lotte&token=${encodeURIComponent(token)}`;
+
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      throw new Error(`Knowledge base API returned ${response.status}`);
+    }
+    const data = await response.json();
+    let prompt = data.content ?? data.prompt ?? data.system_prompt ?? JSON.stringify(data);
+    if (typeof prompt !== 'string' || !prompt) {
+      throw new Error('No valid prompt string in response');
+    }
+
+    // Extract URLs from the prompt and fetch their content as context
+    const urls = [...new Set<string>((prompt.match(URL_REGEX) || []).map(u => u.replace(/[.,;:!?]+$/, '')))];
+    if (urls.length > 0) {
+      const results = await Promise.allSettled(urls.map(fetchUrlContent));
+      const context = results.map(r => r.status === 'fulfilled' ? r.value : '').filter(Boolean).join('\n');
+      if (context) {
+        prompt += '\n\n## Referenced Content\n' + context;
+      }
+    }
+
+    cachedSystemPrompt = prompt;
+    cachedPromptExpiry = Date.now() + PROMPT_CACHE_TTL_MS;
+  } catch {
+    cachedSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+    cachedPromptExpiry = Date.now() + PROMPT_CACHE_TTL_MS;
+  }
+  return cachedSystemPrompt;
+}
 
 interface FindContentArgs {
   query: string;
@@ -700,11 +792,13 @@ export async function POST(req: Request) {
       conversationId,
       userToken,
       aiMode,
+      systemPrompt,
     } = await req.json() as {
       messages?: Message[];
       conversationId?: string;
       userToken?: string;
       aiMode?: string;
+      systemPrompt?: string;
     };
 
     const id: string = conversationId || randomUUID();
@@ -720,9 +814,11 @@ export async function POST(req: Request) {
     const existingHistory = conversationStore.get(id) || [];
     const hasSystem = existingHistory.some(m => m.role === 'system');
 
+    const resolvedPrompt = systemPrompt || await getSystemPrompt();
+
     const baseHistory: Message[] = hasSystem
       ? existingHistory
-      : [{ role: 'system', content: SYSTEM_PROMPT }, ...existingHistory];
+      : [{ role: 'system', content: resolvedPrompt }, ...existingHistory];
 
     // Reduce context size to speed up prompt and model latency
     const requestMessages: Message[] = (() => {

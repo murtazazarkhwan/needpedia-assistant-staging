@@ -350,6 +350,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
   const [aiMode, setAiMode] = useState<'default' | 'eco'>('default');
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -432,6 +433,20 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
     }
   }, [messages, isLoading]);
 
+  // Fetch system prompt on page load
+  useEffect(() => {
+    fetch('/api/prompt')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.prompt) {
+          setSystemPrompt(data.prompt);
+        }
+      })
+      .catch(() => {
+        // Prompt fetch failed - will use server-side fallback
+      });
+  }, []);
+
   const sendMessage = useCallback(async (userMessage: Message) => {
     setError('');
     try {
@@ -445,6 +460,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
           conversationId: currentConversationId,
           userToken: userId || undefined,
           aiMode,
+          systemPrompt: systemPrompt || undefined,
         }),
       });
 
@@ -539,7 +555,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       const message = err instanceof Error ? err.message : 'Failed to send message. Please try again.';
       setError(message);
     }
-  }, [currentConversationId, onConversationChange, userId, aiMode]);
+  }, [currentConversationId, onConversationChange, userId, aiMode, systemPrompt]);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent | KeyboardEvent) => {
     e?.preventDefault();

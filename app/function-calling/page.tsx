@@ -12,7 +12,7 @@ const FunctionCalling = () => {
         setToken(userToken);
 
         if (!userToken) {
-            console.warn('No user token found in URL parameters');
+            // No user token found in URL parameters
         }
     }, []);
 

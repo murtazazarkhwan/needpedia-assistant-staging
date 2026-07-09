@@ -18,7 +18,6 @@ const getBackendMessages = async (conversationId: string, userToken?: string): P
     });
 
     if (!response.ok) {
-      console.warn(`History API: Backend returned ${response.status} for ${conversationId}`);
       return null;
     }
 
@@ -33,12 +32,10 @@ const getBackendMessages = async (conversationId: string, userToken?: string): P
       [];
 
     if (Array.isArray(messages) && messages.length) {
-      console.log(`History API: Retrieved ${messages.length} messages from backend for ${conversationId}`);
       return messages;
     }
     return null;
-  } catch (error) {
-    console.warn(`History API: Failed to load backend messages for ${conversationId}`, error);
+  } catch {
     return null;
   }
 };
@@ -54,7 +51,6 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log('History API: Getting conversation history for', conversationId);
     let history = conversationStore.get(conversationId);
 
     if (!history || history.length === 0) {
@@ -74,15 +70,12 @@ export async function POST(req: Request) {
     }
     
     if (!history || history.length === 0) {
-      console.log('History API: No history found for', conversationId);
       return NextResponse.json(
         { messages: [] },
         { status: 200 }
       );
     }
 
-    console.log('History API: Found history with', history.length, 'messages');
-    
     // Filter out system messages for display
     const displayMessages = history.filter(msg => msg.role !== 'system');
     
@@ -92,7 +85,6 @@ export async function POST(req: Request) {
     });
 
   } catch (error: unknown) {
-    console.error('History API Error:', error);
     const message = error instanceof Error ? error.message : 'Failed to get conversation history';
     
     return NextResponse.json(

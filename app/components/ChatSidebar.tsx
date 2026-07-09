@@ -30,22 +30,19 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
 
   // Load chat history from localStorage on mount - user-specific
   useEffect(() => {
-    console.log('Sidebar: Loading chat history for userId:', userId);
     if (!userId) return;
     
     const storageKey = `chatHistory_${userId}`;
     const savedHistory = localStorage.getItem(storageKey);
-    console.log('Sidebar: Found saved history:', savedHistory);
     if (savedHistory) {
       try {
         const parsed = (JSON.parse(savedHistory) as StoredChatHistory[]).map((item) => ({
           ...item,
           timestamp: new Date(item.timestamp)
         }));
-        console.log('Sidebar: Parsed history:', parsed);
         setChatHistory(parsed);
-      } catch (error: unknown) {
-        console.error('Error parsing chat history:', error);
+      } catch {
+        // Failed to parse chat history
       }
     }
   }, [userId]);
@@ -64,7 +61,6 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
           }
         });
         if (!resp.ok) {
-          console.warn('Sidebar: Failed to load backend chat threads');
           return;
         }
         const data = (await resp.json().catch(() => ({ threads: [] }))) as { threads?: unknown };
@@ -85,8 +81,8 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
             }));
           return additions.length ? [...additions, ...prev] : prev;
         });
-      } catch (error: unknown) {
-        console.warn('Sidebar: Error loading backend chat threads', error);
+      } catch {
+        // Failed to load backend chat threads
       }
     };
 
@@ -103,7 +99,6 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
   }, [chatHistory, userId]);
 
   const addToHistory = (conversationId: string, title: string, lastMessage: string) => {
-    console.log('Sidebar: addToHistory called with:', { conversationId, title, lastMessage });
     setChatHistory(prev => {
       const existingIndex = prev.findIndex(chat => chat.id === conversationId);
       const newEntry = {
@@ -114,14 +109,10 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
       };
 
       if (existingIndex >= 0) {
-        // Update existing chat
         const updated = [...prev];
         updated[existingIndex] = newEntry;
-        console.log('Sidebar: Updated existing chat at index', existingIndex);
         return updated;
       } else {
-        // Add new chat at the beginning
-        console.log('Sidebar: Adding new chat');
         return [newEntry, ...prev];
       }
     });
