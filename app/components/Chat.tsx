@@ -277,6 +277,7 @@ const persistChatThread = async (
 
   const chatThreadPayload: Record<string, string> = {
     thread_id: threadId,
+    assistant_name: "Needpedia Assistant",
   };
 
   if (title) {
@@ -317,6 +318,7 @@ const persistChatMessages = async (
 
   const body: Record<string, unknown> = {
     thread_id: threadId,
+    assistant_name: "Needpedia Assistant",
     messages,
   };
 
@@ -832,6 +834,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
             </button>
           </div>
         </form>
+        <p className="text-center text-[11px] text-gray-400 mt-1">All AI conversations are recorded to help us improve our site and workflows.</p>
       </div>
     </div>
   );
