@@ -8,6 +8,8 @@ interface ChatProps {
   onConversationChange?: (conversationId: string, title: string, lastMessage: string) => void;
   noBorder?: boolean;
   userId?: string | null;
+  postId?: string | null;
+  postTitle?: string | null;
 }
 
 // Helper function to filter out reasoning/thinking content
@@ -344,7 +346,7 @@ const persistChatMessages = async (
   }
 };
 
-export default function Chat({ conversationId, onConversationChange, noBorder = false, userId }: ChatProps) {
+export default function Chat({ conversationId, onConversationChange, noBorder = false, userId, postId, postTitle }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -463,6 +465,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
           userToken: userId || undefined,
           aiMode,
           systemPrompt: systemPrompt || undefined,
+          pageContext: postId ? { postId, postTitle } : undefined,
         }),
       });
 
@@ -471,6 +474,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
         conversationId?: string;
         usedTokens?: number;
         error?: string | { message?: string };
+        transformApplied?: { postId: string; newContent: string; transformType: string } | null;
       };
 
       if (!response.ok) {
@@ -492,6 +496,11 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       }
 
       const assistantVisibleContent = assistantMessage?.content || '';
+
+      // Notify parent page if a transform was applied
+      if (data.transformApplied && typeof window !== 'undefined' && window.parent) {
+        window.parent.postMessage({ type: 'page-transformed', ...data.transformApplied }, '*');
+      }
       const sidebarTitle = buildPreviewText(userMessage.content, 50);
       const sidebarLastMessage = buildPreviewText(assistantVisibleContent, 100);
       const threadTitle = buildPreviewText(userMessage.content, 80);
@@ -538,6 +547,10 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       // Update conversation ID if it's new
       if (data.conversationId && data.conversationId !== currentConversationId) {
         setCurrentConversationId(data.conversationId);
+        // Persist to localStorage for thread restoration
+        if (userId) {
+          localStorage.setItem(`lotte_last_conversation_${userId}`, data.conversationId);
+        }
       }
 
       if (data.conversationId && userId) {
@@ -557,7 +570,7 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
       const message = err instanceof Error ? err.message : 'Failed to send message. Please try again.';
       setError(message);
     }
-  }, [currentConversationId, onConversationChange, userId, aiMode, systemPrompt]);
+  }, [currentConversationId, onConversationChange, userId, aiMode, systemPrompt, postId, postTitle]);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent | KeyboardEvent) => {
     e?.preventDefault();

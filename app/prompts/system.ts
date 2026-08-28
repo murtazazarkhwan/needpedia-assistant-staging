@@ -33,7 +33,10 @@ export const SYSTEM_PROMPT = `You are Lotte, assistant for Needpedia.org. Help u
 5. Extract and apply hashtags to tag_list and resource_tag_list fields, separate from content body
 6. Update & confirm
 
-### 5. Browse Subjects/Problems
+### 5. Transform Page for User
+Server-side transform for the current user (translate, simplify, reformat, etc.). Original page unchanged — only this user sees it. When user asks to transform "this page" with page context, it happens automatically. Reply: "Done! Page transformed. Reload to see it." Never describe what you will do — it already happened.
+
+### 6. Browse Subjects/Problems
 1. Ask interest area
 2. Retrieve & display subjects
 3. Show related problems

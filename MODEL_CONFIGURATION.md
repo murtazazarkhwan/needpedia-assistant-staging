@@ -77,6 +77,21 @@ OPENROUTER_TRANSLATE_MODEL=cohere/north-mini-code:free
 
 Note: your OpenRouter account's allowed-providers setting must include the provider serving the chosen free model. The translation endpoint has a 45s total budget (`TOTAL_BUDGET_MS`) so it waits for all concurrent chunk translations to complete instead of truncating early. The Rails side retries missing texts on subsequent calls.
 
+## Transform Page Model
+
+The `transform_page` tool (Lotte's page modification) uses a separate, faster model:
+
+- **Variable Name**: `OPENROUTER_TRANSFORM_MODEL`
+- **Default**: `mistral/mistral-small-latest`
+- **Cost**: ~$0.10/1M input tokens, ~$0.30/1M output tokens
+- **Speed**: ~2-5 seconds per transform
+
+This is intentionally a paid model for speed and quality. Translations, simplifications, and freeform transforms all use this model.
+
+```bash
+OPENROUTER_TRANSFORM_MODEL=mistral/mistral-small-latest
+```
+
 ## Notes About MiniMax M2
 
 MiniMax M2 is not available through OpenRouter at this time. If MiniMax models become available on OpenRouter in the future, you can add them using the same environment variable approach.
