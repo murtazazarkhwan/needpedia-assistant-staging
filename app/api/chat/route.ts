@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Message } from '@/types/chat';
 import { SYSTEM_PROMPT as DEFAULT_SYSTEM_PROMPT } from '@/app/prompts/system';
-import axios from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import { conversationStore } from '@/utils/memory';
 import { saveConversationToDisk } from '@/utils/conversationPersistence';
 import { randomUUID } from 'crypto';
@@ -672,6 +672,87 @@ const replacePlaceholderLinksWithToolUrls = (text: string, toolResults: Executed
   });
 };
 
+// Language name → code map for transform requests
+const LANG_MAP: Record<string, string> = { spanish: 'es', french: 'fr', german: 'de', arabic: 'ar', chinese: 'zh', japanese: 'ja', portuguese: 'pt', hindi: 'hi', urdu: 'ur', turkish: 'tr', italian: 'it', dutch: 'nl', russian: 'ru', korean: 'ko' };
+const LANG_MATCH_RE = /\b(to|into|in)\s+(spanish|french|german|arabic|chinese|japanese|portuguese|hindi|urdu|turkish|italian|dutch|russian|korean)\b/i;
+const TRANSFORM_RE = /\b(translate|simplif[y]?|transform|rewrite|convert|reformat|kid.?friendly|age.?appropriate|plain.?language)\b/i;
+
+async function handleTransform(args: {
+  lastUserMsg: string;
+  postId: string;
+  postTitle: string;
+  userToken?: string;
+  conversationId: string;
+  openRouterClient: AxiosInstance;
+}): Promise<NextResponse> {
+  const { lastUserMsg, postId, postTitle, userToken, conversationId: id, openRouterClient: client } = args;
+  const langMatch = lastUserMsg.match(LANG_MATCH_RE);
+  const targetLang = langMatch ? LANG_MAP[langMatch[2].toLowerCase()] : undefined;
+  const instruction = targetLang && langMatch ? `translate to ${langMatch[2].toLowerCase()}` : lastUserMsg;
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+
+  // Fetch post content
+  const postRes = await fetch(`${baseUrl}/api/v1/posts/${postId}`, {
+    headers: { 'token': userToken || '' }
+  });
+  if (!postRes.ok) {
+    return NextResponse.json({
+      conversationId: id,
+      choices: [{ message: { role: 'assistant', content: `Could not fetch page content (HTTP ${postRes.status}).` } }],
+      usedTokens: 0,
+      transformApplied: null,
+    });
+  }
+  const postData = await postRes.json();
+  const postContent = postData?.content?.content?.body || '';
+
+  // Fetch active version
+  const versionRes = await fetch(`${baseUrl}/api/v1/posts/${postId}/post_versions/active`, {
+    headers: { 'token': userToken || '' }
+  });
+  const versionData = await versionRes.json().catch(() => ({}));
+  const activeVersionId = versionData?.version_id || null;
+
+  // Transform via LLM
+  const transformModel = process.env.OPENROUTER_TRANSFORM_MODEL || 'mistral/mistral-small-latest';
+  const transformRes = await client.post('/chat/completions', {
+    model: transformModel,
+    messages: [{
+      role: 'user',
+      content: `You are a content transformer. Transform the following HTML content according to the instruction. Return ONLY the transformed HTML, no explanations.\n\nInstruction: ${instruction}\n\nContent:\n${postContent}`
+    }],
+    max_tokens: 2000,
+  });
+  const transformedHtml = (transformRes.data?.choices?.[0]?.message?.content || '')
+    .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  const transformTokens = transformRes.data?.usage?.total_tokens || 0;
+
+  // Save to Rails
+  const saveRes = await fetch(`${baseUrl}/api/v1/posts/${postId}/post_transformation`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'token': userToken || '' },
+    body: JSON.stringify({ content: { body: transformedHtml }, transform_type: targetLang ? `translate_${targetLang}` : 'freeform', post_version_id: activeVersionId }),
+  });
+  if (!saveRes.ok) {
+    const saveErr = await saveRes.json().catch(() => ({}));
+    return NextResponse.json({
+      conversationId: id,
+      choices: [{ message: { role: 'assistant', content: `Transformed content could not be saved (HTTP ${saveRes.status}). ${saveErr.message || ''}` } }],
+      usedTokens: 0,
+      transformApplied: null,
+    });
+  }
+
+  const langName = targetLang ? ` (${langMatch![2]})` : '';
+  return NextResponse.json({
+    conversationId: id,
+    choices: [{ message: { role: 'assistant', content: `Page "${postTitle}" has been transformed${langName}. Click "Restore original" on the page to undo.` } }],
+    usedTokens: transformTokens,
+    transformApplied: { postId, newContent: transformedHtml, transformType: targetLang ? `translate_${targetLang}` : 'freeform' },
+  });
+}
+
 // Define available tools
 const availableTools = [
   {
@@ -793,12 +874,14 @@ export async function POST(req: Request) {
       userToken,
       aiMode,
       systemPrompt,
+      pageContext,
     } = await req.json() as {
       messages?: Message[];
       conversationId?: string;
       userToken?: string;
       aiMode?: string;
       systemPrompt?: string;
+      pageContext?: { postId?: string; postTitle?: string };
     };
 
     const id: string = conversationId || randomUUID();
@@ -816,9 +899,15 @@ export async function POST(req: Request) {
 
     const resolvedPrompt = systemPrompt || await getSystemPrompt();
 
+    // Inject page context so Lotte knows what page the user is viewing
+    let finalPrompt = resolvedPrompt;
+    if (pageContext?.postId) {
+      finalPrompt += `\n\n## Current Page\nThe user is viewing a page:\n- ID: ${pageContext.postId}\n- Title: ${pageContext.postTitle || 'Unknown'}\n\nWhen the user says "this page", "translate this", "simplify this", or any transform request about the current page, the system handles it automatically. Just respond naturally confirming the action.`;
+    }
+
     const baseHistory: Message[] = hasSystem
       ? existingHistory
-      : [{ role: 'system', content: resolvedPrompt }, ...existingHistory];
+      : [{ role: 'system', content: finalPrompt }, ...existingHistory];
 
     // Reduce context size to speed up prompt and model latency
     const requestMessages: Message[] = (() => {
@@ -843,6 +932,19 @@ export async function POST(req: Request) {
     
     // Track total tokens used across one logical response
     let usedTokens = 0;
+
+    // Detect transform intent and handle server-side (bypass model tool calling)
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+    if (pageContext?.postId && (TRANSFORM_RE.test(lastUserMsg) || LANG_MATCH_RE.test(lastUserMsg))) {
+      return await handleTransform({
+        lastUserMsg,
+        postId: pageContext.postId,
+        postTitle: pageContext.postTitle || 'Unknown',
+        userToken,
+        conversationId: id,
+        openRouterClient,
+      });
+    }
 
     // First API call
     const response = await openRouterClient.post('/chat/completions', {

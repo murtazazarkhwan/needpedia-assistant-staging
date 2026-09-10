@@ -8,6 +8,8 @@ import ChatSidebar, { ChatSidebarRef } from './components/ChatSidebar';
 export default function PageContent() {
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [userId, setUserId] = useState<string | null>(null);
+  const [postId, setPostId] = useState<string | null>(null);
+  const [postTitle, setPostTitle] = useState<string | null>(null);
   const [sidebarLockedOff, setSidebarLockedOff] = useState<boolean>(false);
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
   const sidebarRef = useRef<ChatSidebarRef>(null);
@@ -20,7 +22,11 @@ export default function PageContent() {
     setMounted(true);
     const sidebarParam = searchParams?.get('sidebar');
     const userToken = searchParams?.get('user_token');
+    const postIdParam = searchParams?.get('post_id');
+    const postTitleParam = searchParams?.get('post_title');
     setUserId(userToken || null);
+    setPostId(postIdParam || null);
+    setPostTitle(postTitleParam || null);
     setSidebarLockedOff(sidebarParam === 'false');
     if (sidebarParam === 'false') {
       setShowSidebar(false);
@@ -38,6 +44,31 @@ export default function PageContent() {
       }
     }
   }, [searchParams]);
+
+  // Restore last conversation from localStorage once userId is known
+  useEffect(() => {
+    if (!userId) return;
+    const storageKey = `lotte_last_conversation_${userId}`;
+    try {
+      const savedId = localStorage.getItem(storageKey);
+      if (savedId) {
+        setCurrentConversationId(savedId);
+      }
+    } catch { /* ignore */ }
+  }, [userId]);
+
+  // Persist conversation to localStorage when it changes
+  useEffect(() => {
+    if (!userId) return;
+    const storageKey = `lotte_last_conversation_${userId}`;
+    try {
+      if (currentConversationId) {
+        localStorage.setItem(storageKey, currentConversationId);
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch { /* ignore */ }
+  }, [currentConversationId, userId]);
 
   // Persist sidebar state
   useEffect(() => {
@@ -96,8 +127,11 @@ export default function PageContent() {
         <Chat
           conversationId={currentConversationId}
           onConversationChange={handleConversationChange}
+          onNewChat={handleNewChat}
           noBorder={false}
           userId={userId}
+          postId={postId}
+          postTitle={postTitle}
         />
       </div>
     );
@@ -180,6 +214,8 @@ export default function PageContent() {
             conversationId={currentConversationId}
             onConversationChange={handleConversationChange}
             userId={userId}
+            postId={postId}
+            postTitle={postTitle}
           />
         </div>
       </main>
