@@ -63,23 +63,35 @@ const ChatSidebar = forwardRef<ChatSidebarRef, ChatSidebarProps>(({ onNewChat, o
         if (!resp.ok) {
           return;
         }
-        const data = (await resp.json().catch(() => ({ threads: [] }))) as { threads?: unknown };
-        const threads = Array.isArray(data?.threads) ? data.threads.filter((id): id is string => typeof id === 'string') : [];
+        const data = (await resp.json().catch(() => ({ threads: [] }))) as { threads?: Array<{ id: string; title?: string; lastMessage?: string; timestamp?: string }> };
+        const threads = Array.isArray(data?.threads) ? data.threads : [];
 
         if (threads.length === 0) return;
 
         setChatHistory(prev => {
-          const existingIds = new Set(prev.map(c => c.id));
-          const now = new Date();
-          const additions: ChatHistory[] = threads
-            .filter(id => !existingIds.has(id))
-            .map(id => ({
-              id,
-              title: `Conversation ${id.substring(0, 8)}...`,
-              lastMessage: '',
-              timestamp: now
-            }));
-          return additions.length ? [...additions, ...prev] : prev;
+          const backendMap = new Map(threads.map(t => [t.id, t]));
+          // Update existing entries with backend titles
+          const merged = prev.map(entry => {
+            const backend = backendMap.get(entry.id);
+            if (backend) {
+              backendMap.delete(entry.id);
+              return {
+                ...entry,
+                title: backend.title || entry.title,
+                lastMessage: backend.lastMessage || entry.lastMessage,
+                timestamp: backend.timestamp ? new Date(backend.timestamp) : entry.timestamp,
+              };
+            }
+            return entry;
+          });
+          // Add remaining new threads
+          const additions: ChatHistory[] = Array.from(backendMap.values()).map(t => ({
+            id: t.id,
+            title: t.title || 'New chat',
+            lastMessage: t.lastMessage || '',
+            timestamp: t.timestamp ? new Date(t.timestamp) : new Date()
+          }));
+          return [...additions, ...merged];
         });
       } catch {
         // Failed to load backend chat threads
