@@ -675,7 +675,7 @@ const replacePlaceholderLinksWithToolUrls = (text: string, toolResults: Executed
 // Language name → code map for transform requests
 const LANG_MAP: Record<string, string> = { spanish: 'es', french: 'fr', german: 'de', arabic: 'ar', chinese: 'zh', japanese: 'ja', portuguese: 'pt', hindi: 'hi', urdu: 'ur', turkish: 'tr', italian: 'it', dutch: 'nl', russian: 'ru', korean: 'ko' };
 const LANG_MATCH_RE = /\b(to|into|in)\s+(spanish|french|german|arabic|chinese|japanese|portuguese|hindi|urdu|turkish|italian|dutch|russian|korean)\b/i;
-const TRANSFORM_RE = /\b(translate|simplif[y]?|transform|rewrite|convert|reformat|kid.?friendly|age.?appropriate|plain.?language)\b/i;
+const TRANSFORM_RE = /\b(translate|simplif[y]?|transform|rewrite|convert|reformat|kid.?friendly|age.?appropriate|plain.?language|summarize|summary|quiz|question|explain|eli5|define|definition[s]?|glossary|key.?point[s]?|bullet[s]?|extract|context|background|shorter|shorten|formal|casual|tone|longer|expand|detail[s]?|elaborate|tldr|tl;dr|recap|overview|poem|rhyme|story|narrative|metaphor|analogy|example[s]?|step[s]?|how.?to|checklist|action.?item[s]?|faq|myth|fact[s]?|tip[s]?|hint[s]?|memory.?aid|mnemonic|song|rap|dialogue|debate|pros?.?cons?|compare|contrast|difference[s]?|similarit[yies]+|write|create|make|turn|put)\b/i;
 
 async function handleTransform(args: {
   lastUserMsg: string;
@@ -875,6 +875,7 @@ export async function POST(req: Request) {
       aiMode,
       systemPrompt,
       pageContext,
+      stream: requestedStream,
     } = await req.json() as {
       messages?: Message[];
       conversationId?: string;
@@ -882,6 +883,7 @@ export async function POST(req: Request) {
       aiMode?: string;
       systemPrompt?: string;
       pageContext?: { postId?: string; postTitle?: string };
+      stream?: boolean;
     };
 
     const id: string = conversationId || randomUUID();
@@ -943,6 +945,117 @@ export async function POST(req: Request) {
         userToken,
         conversationId: id,
         openRouterClient,
+      });
+    }
+
+    // Streaming path — returns SSE stream to client
+    if (requestedStream) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (event: string, data: unknown) => {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          };
+
+          try {
+            const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                'HTTP-Referer': process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000',
+                'X-Title': 'AI Chat Assistant',
+              },
+              body: JSON.stringify({
+                model,
+                messages: requestMessages,
+                stream: true,
+              }),
+            });
+
+            if (!apiResponse.ok) {
+              const errText = await apiResponse.text();
+              send('error', { error: `OpenRouter error: ${apiResponse.status} ${errText}` });
+              controller.close();
+              return;
+            }
+
+            const reader = apiResponse.body?.getReader();
+            if (!reader) {
+              send('error', { error: 'No response body' });
+              controller.close();
+              return;
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullContent = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('data: ')) continue;
+                const payload = trimmed.slice(6);
+                if (payload === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(payload) as {
+                    choices?: Array<{ delta?: { content?: string } }>;
+                    usage?: { total_tokens?: number };
+                  };
+                  const chunk = parsed.choices?.[0]?.delta?.content;
+                  if (chunk) {
+                    fullContent += chunk;
+                    send('message', { content: chunk });
+                  }
+                  if (parsed.usage?.total_tokens) {
+                    usedTokens = parsed.usage.total_tokens;
+                  }
+                } catch {
+                  // skip malformed chunks
+                }
+              }
+            }
+
+            // Persist conversation
+            const assistantMsg: Message = { role: 'assistant', content: fullContent };
+            const toAppend: Message[] = [...messages, assistantMsg];
+            const persistedHistory = conversationStore.append(id, toAppend, MAX_STORED_MESSAGES);
+            saveConversationToDisk(id, persistedHistory).catch(() => {});
+
+            // Token decrement
+            (async () => {
+              try {
+                await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/tokens/decrease`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.POST_TOKEN || ''}` },
+                  body: JSON.stringify({ utoken: userToken, decrement_by: Math.max(1, usedTokens) }),
+                });
+              } catch { /* ignored */ }
+            })();
+
+            send('done', { conversationId: id, usedTokens: Math.max(0, usedTokens) });
+          } catch (err: unknown) {
+            send('error', { error: getErrorMessage(err) });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
       });
     }
 
