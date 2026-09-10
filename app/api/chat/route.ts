@@ -935,7 +935,7 @@ export async function POST(req: Request) {
 
     // Detect transform intent and handle server-side (bypass model tool calling)
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
-    if (pageContext?.postId && TRANSFORM_RE.test(lastUserMsg)) {
+    if (pageContext?.postId && (TRANSFORM_RE.test(lastUserMsg) || LANG_MATCH_RE.test(lastUserMsg))) {
       return await handleTransform({
         lastUserMsg,
         postId: pageContext.postId,

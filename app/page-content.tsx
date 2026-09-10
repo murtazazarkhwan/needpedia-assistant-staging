@@ -127,6 +127,7 @@ export default function PageContent() {
         <Chat
           conversationId={currentConversationId}
           onConversationChange={handleConversationChange}
+          onNewChat={handleNewChat}
           noBorder={false}
           userId={userId}
           postId={postId}

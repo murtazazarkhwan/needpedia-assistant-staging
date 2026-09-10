@@ -6,6 +6,7 @@ import { Message } from '@/types/chat';
 interface ChatProps {
   conversationId?: string;
   onConversationChange?: (conversationId: string, title: string, lastMessage: string) => void;
+  onNewChat?: () => void;
   noBorder?: boolean;
   userId?: string | null;
   postId?: string | null;
@@ -346,7 +347,7 @@ const persistChatMessages = async (
   }
 };
 
-export default function Chat({ conversationId, onConversationChange, noBorder = false, userId, postId, postTitle }: ChatProps) {
+export default function Chat({ conversationId, onConversationChange, onNewChat, noBorder = false, userId, postId, postTitle }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -613,6 +614,21 @@ export default function Chat({ conversationId, onConversationChange, noBorder = 
   return (
     <div className={`flex flex-col h-full bg-gray-50 ${noBorder ? '' : 'rounded-lg shadow-xl border border-gray-200'}`}>
       <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+        {/* New Conversation button - only in sidebar=false mode when there are messages */}
+        {onNewChat && messages.length > 0 && (
+          <div className="flex justify-center mb-3">
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 shadow-sm"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New Conversation
+            </button>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="text-center text-gray-500 max-w-md mx-auto py-8">
             <div className="flex justify-center mb-6">
