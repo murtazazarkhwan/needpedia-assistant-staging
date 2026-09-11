@@ -40,6 +40,9 @@ export default function WelcomeScreen({ onSuggestionClick }: WelcomeScreenProps)
           </button>
         ))}
       </div>
+      <p className="text-[11px] text-zinc-400 mt-6 max-w-xs leading-relaxed">
+        All AI conversations are recorded to help us improve our site and workflows.
+      </p>
     </div>
   );
 }

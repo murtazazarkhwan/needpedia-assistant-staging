@@ -153,6 +153,9 @@ export default function InputArea({
       <p className="text-center text-[11px] text-zinc-400 mt-2">
         Ctrl+Enter to send · Esc to clear
       </p>
+      <p className="text-center text-[11px] text-zinc-400 mt-1">
+        All AI conversations are recorded to help us improve our site and workflows.
+      </p>
     </div>
   );
 }
