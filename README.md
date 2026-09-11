@@ -54,6 +54,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 - \`OPENROUTER_API_KEY\`: Your OpenRouter API key (required)
 - \`OPENROUTER_MODEL\`: The model to use for the chat (defaults to \`mistralai/mistral-7b-instruct:free\`)
+- \`OPENROUTER_TRANSLATE_MODEL\`: Optional pin for the translation endpoint. If unset, the app auto-discovers a free OpenRouter model at runtime (free-only, lightest first). Defaults to \`openrouter/free\` if discovery fails.
 - \`NEXT_PUBLIC_API_BASE_URL\`: Base URL for your app/backend (also used for headers) (optional)
 - \`POST_TOKEN\`: Token for API requests (optional)
 

@@ -58,6 +58,40 @@ The current model (`mistralai/mistral-7b-instruct:free`) **does support function
 > 2. The preview includes the original description, the HTML body that will be sent, and a plain-text rendition with all rich formatting stripped out.  
 > 3. Once the user approves, call the same tool again with `confirm: true` to execute the action.
 
+## Translation Model
+
+The `/api/translate` endpoint **only ever uses free models** — never paid. By default it auto-discovers a free model at runtime:
+
+1. Fetches the OpenRouter model list (cached ~10 min).
+2. Filters to **free-only** models (`pricing.prompt == 0` and `pricing.completion == 0`).
+3. Skips reasoning/content-safety/audio/video/image models (text-to-text only).
+4. Sorts by context length ascending — lightest first (translation is light work).
+5. Probes each candidate with a tiny call until one succeeds on your account's allowed-provider list.
+6. Falls back to `openrouter/free` if no free model works.
+
+You can pin a specific model (must still be free) via env if you prefer:
+
+```bash
+OPENROUTER_TRANSLATE_MODEL=cohere/north-mini-code:free
+```
+
+Note: your OpenRouter account's allowed-providers setting must include the provider serving the chosen free model. The translation endpoint has a 45s total budget (`TOTAL_BUDGET_MS`) so it waits for all concurrent chunk translations to complete instead of truncating early. The Rails side retries missing texts on subsequent calls.
+
+## Transform Page Model
+
+The `transform_page` tool (Lotte's page modification) uses a separate, faster model:
+
+- **Variable Name**: `OPENROUTER_TRANSFORM_MODEL`
+- **Default**: `mistral/mistral-small-latest`
+- **Cost**: ~$0.10/1M input tokens, ~$0.30/1M output tokens
+- **Speed**: ~2-5 seconds per transform
+
+This is intentionally a paid model for speed and quality. Translations, simplifications, and freeform transforms all use this model.
+
+```bash
+OPENROUTER_TRANSFORM_MODEL=mistral/mistral-small-latest
+```
+
 ## Notes About MiniMax M2
 
 MiniMax M2 is not available through OpenRouter at this time. If MiniMax models become available on OpenRouter in the future, you can add them using the same environment variable approach.
