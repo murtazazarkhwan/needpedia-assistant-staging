@@ -675,7 +675,9 @@ const replacePlaceholderLinksWithToolUrls = (text: string, toolResults: Executed
 // Language name → code map for transform requests
 const LANG_MAP: Record<string, string> = { spanish: 'es', french: 'fr', german: 'de', arabic: 'ar', chinese: 'zh', japanese: 'ja', portuguese: 'pt', hindi: 'hi', urdu: 'ur', turkish: 'tr', italian: 'it', dutch: 'nl', russian: 'ru', korean: 'ko' };
 const LANG_MATCH_RE = /\b(to|into|in)\s+(spanish|french|german|arabic|chinese|japanese|portuguese|hindi|urdu|turkish|italian|dutch|russian|korean)\b/i;
-const TRANSFORM_RE = /\b(translate|simplif[y]?|transform|rewrite|convert|reformat|kid.?friendly|age.?appropriate|plain.?language|summarize|summary|quiz|question|explain|eli5|define|definition[s]?|glossary|key.?point[s]?|bullet[s]?|extract|context|background|shorter|shorten|formal|casual|tone|longer|expand|detail[s]?|elaborate|tldr|tl;dr|recap|overview|poem|rhyme|story|narrative|metaphor|analogy|example[s]?|step[s]?|how.?to|checklist|action.?item[s]?|faq|myth|fact[s]?|tip[s]?|hint[s]?|memory.?aid|mnemonic|song|rap|dialogue|debate|pros?.?cons?|compare|contrast|difference[s]?|similarit[yies]+|write|create|make|turn|put)\b/i;
+const TRANSFORM_RE = /\b(translate|simplif[y]?|transform|rewrite|convert|reformat|kid.?friendly|age.?appropriate|plain.?language|summarize|summary|quiz|question|explain|eli5|define|definition[s]?|glossary|key.?point[s]?|bullet[s]?|extract|context|background|shorter|shorten|formal|casual|tone|longer|expand|detail[s]?|elaborate|tldr|tl;dr|recap|overview|poem|rhyme|story|narrative|metaphor|analogy|example[s]?|step[s]?|how.?to|checklist|action.?item[s]?|faq|myth|fact[s]?|tip[s]?|hint[s]?|memory.?aid|mnemonic|song|rap|dialogue|debate|pros?.?cons?|compare|contrast|difference[s]?|similarit[yies]+)\b/i;
+// Messages that need tool calls — route to non-streaming for reliable execution
+const TOOLS_RE = /\b(search|find|look\s*up|create|make|new\s+(?:idea|post|subject|problem|layer|topic)|edit|update|modify|show\s+(?:me\s+)?(?:all\s+)?(?:posts?|ideas?|subjects?|problems?|layers?|topics?)|list|get|what\s+(?:are|do|did)\s+(?:the|my|all)|who|how\s+many|count|where|browse|explore|suggest|recommend)\b/i;
 
 async function handleTransform(args: {
   lastUserMsg: string;
@@ -744,10 +746,36 @@ async function handleTransform(args: {
     });
   }
 
-  const langName = targetLang ? ` (${langMatch![2]})` : '';
+  const lowerInstruction = instruction.toLowerCase();
+  let actionLabel = 'Transformed';
+  if (targetLang) {
+    actionLabel = `Translated to ${langMatch![2]}`;
+  } else if (/summarize|summary/.test(lowerInstruction)) {
+    actionLabel = 'Summary created';
+  } else if (/simplif/.test(lowerInstruction)) {
+    actionLabel = 'Simplified';
+  } else if (/kid.?friendly/.test(lowerInstruction)) {
+    actionLabel = 'Made kid-friendly';
+  } else if (/age.?appropriate/.test(lowerInstruction)) {
+    actionLabel = 'Made age-appropriate';
+  } else if (/eli5/.test(lowerInstruction)) {
+    actionLabel = 'Simplified to ELI5';
+  } else if (/quiz/.test(lowerInstruction)) {
+    actionLabel = 'Quiz generated';
+  } else if (/rewrite|reformat/.test(lowerInstruction)) {
+    actionLabel = 'Rewritten';
+  } else if (/shorten|shorter/.test(lowerInstruction)) {
+    actionLabel = 'Shortened';
+  } else if (/expand|longer|detail|elaborate/.test(lowerInstruction)) {
+    actionLabel = 'Expanded';
+  } else if (/poem|rhyme/.test(lowerInstruction)) {
+    actionLabel = 'Poem created';
+  } else if (/story|narrative/.test(lowerInstruction)) {
+    actionLabel = 'Story created';
+  }
   return NextResponse.json({
     conversationId: id,
-    choices: [{ message: { role: 'assistant', content: `Page "${postTitle}" has been transformed${langName}. Click "Restore original" on the page to undo.` } }],
+    choices: [{ message: { role: 'assistant', content: `${actionLabel} for "${postTitle}". Click "Restore original" on the page to undo.` } }],
     usedTokens: transformTokens,
     transformApplied: { postId, newContent: transformedHtml, transformType: targetLang ? `translate_${targetLang}` : 'freeform' },
   });
@@ -904,7 +932,7 @@ export async function POST(req: Request) {
     // Inject page context so Lotte knows what page the user is viewing
     let finalPrompt = resolvedPrompt;
     if (pageContext?.postId) {
-      finalPrompt += `\n\n## Current Page\nThe user is viewing a page:\n- ID: ${pageContext.postId}\n- Title: ${pageContext.postTitle || 'Unknown'}\n\nWhen the user says "this page", "translate this", "simplify this", or any transform request about the current page, the system handles it automatically. Just respond naturally confirming the action.`;
+      finalPrompt += `\n\n## Current Page\nThe user is viewing a page:\n- ID: ${pageContext.postId}\n- Title: ${pageContext.postTitle || 'Unknown'}\n\nTransform requests (summarize, translate, simplify, kid-friendly, etc.) are handled automatically. The result will appear in your conversation history. If the user references a previous transform, you can see it in the conversation.`;
     }
 
     const baseHistory: Message[] = hasSystem
@@ -938,7 +966,7 @@ export async function POST(req: Request) {
     // Detect transform intent and handle server-side (bypass model tool calling)
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
     if (pageContext?.postId && (TRANSFORM_RE.test(lastUserMsg) || LANG_MATCH_RE.test(lastUserMsg))) {
-      return await handleTransform({
+      const transformResponse = await handleTransform({
         lastUserMsg,
         postId: pageContext.postId,
         postTitle: pageContext.postTitle || 'Unknown',
@@ -946,10 +974,43 @@ export async function POST(req: Request) {
         conversationId: id,
         openRouterClient,
       });
+
+      // Persist transform in conversation history so model remembers it
+      try {
+        const cloned = transformResponse.clone();
+        const transformBody = await cloned.json() as {
+          choices?: Array<{ message?: { role?: string; content?: string } }>;
+          usedTokens?: number;
+        };
+        const transformAssistantMsg: Message = {
+          role: 'assistant',
+          content: transformBody.choices?.[0]?.message?.content || 'Transform completed.',
+        };
+        const toAppend: Message[] = [...messages, transformAssistantMsg];
+        const persistedHistory = conversationStore.append(id, toAppend, MAX_STORED_MESSAGES);
+        saveConversationToDisk(id, persistedHistory).catch(() => {});
+
+        // Decrement tokens for transform
+        const transformTokens = transformBody.usedTokens || 0;
+        if (transformTokens > 0 && userToken) {
+          fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/tokens/decrease`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.POST_TOKEN || ''}` },
+            body: JSON.stringify({ utoken: userToken, decrement_by: Math.max(1, transformTokens) }),
+          }).catch(() => {});
+        }
+      } catch {
+        // Best effort — don't fail the transform if persistence fails
+      }
+
+      return transformResponse;
     }
 
+    // Route tool-intent messages to non-streaming for reliable tool execution
+    const needsTools = TOOLS_RE.test(lastUserMsg) && !TRANSFORM_RE.test(lastUserMsg);
+
     // Streaming path — returns SSE stream to client
-    if (requestedStream) {
+    if (requestedStream && !needsTools) {
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
