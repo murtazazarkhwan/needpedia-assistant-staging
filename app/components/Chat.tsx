@@ -14,6 +14,7 @@ interface ChatProps {
   userId?: string | null;
   postId?: string | null;
   postTitle?: string | null;
+  firstTime?: boolean;
 }
 
 // Helper: filter reasoning/thinking content from assistant responses
@@ -93,7 +94,7 @@ const persistMessages = async (threadId: string, token: string, messages: Persis
   } catch { /* ignore */ }
 };
 
-export default function Chat({ conversationId, onConversationChange, onNewChat, noBorder = false, userId, postId, postTitle }: ChatProps) {
+export default function Chat({ conversationId, onConversationChange, onNewChat, noBorder = false, userId, postId, postTitle, firstTime = false }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -355,7 +356,7 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
 
         {/* Empty state */}
         {messages.length === 0 && !streamingContent && (
-          <WelcomeScreen onSuggestionClick={handleSuggestion} />
+          <WelcomeScreen onSuggestionClick={handleSuggestion} firstTime={firstTime} />
         )}
 
         {/* Messages */}

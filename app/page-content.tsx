@@ -9,6 +9,7 @@ export default function PageContent() {
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [userId, setUserId] = useState<string | null>(null);
   const [postId, setPostId] = useState<string | null>(null);
+  const [firstTime, setFirstTime] = useState(false);
   const [postTitle, setPostTitle] = useState<string | null>(null);
   const [sidebarLockedOff, setSidebarLockedOff] = useState<boolean>(false);
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
@@ -27,6 +28,7 @@ export default function PageContent() {
     setUserId(userToken || null);
     setPostId(postIdParam || null);
     setPostTitle(postTitleParam || null);
+    setFirstTime(searchParams?.get('firsttime') === 'true');
     setSidebarLockedOff(sidebarParam === 'false');
     if (sidebarParam === 'false') {
       setShowSidebar(false);
@@ -132,6 +134,7 @@ export default function PageContent() {
           userId={userId}
           postId={postId}
           postTitle={postTitle}
+          firstTime={firstTime}
         />
       </div>
     );
@@ -216,6 +219,7 @@ export default function PageContent() {
             userId={userId}
             postId={postId}
             postTitle={postTitle}
+            firstTime={firstTime}
           />
         </div>
       </main>
