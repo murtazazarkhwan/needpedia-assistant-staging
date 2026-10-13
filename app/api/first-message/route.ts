@@ -11,6 +11,7 @@ async function fetchFirstMessage(): Promise<string | null> {
   const token = process.env.AI_KNOWLEDGE_BASE_TOKEN;
 
   if (!baseUrl || !token) {
+    console.error('[first-message] NEXT_PUBLIC_API_BASE_URL or AI_KNOWLEDGE_BASE_TOKEN unset');
     cachedExpiry = Date.now() + CACHE_TTL_MS;
     return null;
   }
@@ -26,7 +27,10 @@ async function fetchFirstMessage(): Promise<string | null> {
     cachedMessage = message;
     cachedExpiry = Date.now() + CACHE_TTL_MS;
     return cachedMessage;
-  } catch {
+  } catch (err) {
+    // §5 advisory: surface the failure once per 60s window — the negative
+    // cache otherwise hides it and makes "Lotte is silent" undiagnosable.
+    console.error('[first-message] fetch failed, serving null:', err);
     cachedMessage = null;
     cachedExpiry = Date.now() + CACHE_TTL_MS;
     return null;
