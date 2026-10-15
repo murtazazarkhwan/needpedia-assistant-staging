@@ -1,6 +1,14 @@
+export interface TaskDraft {
+  title: string;
+  description: string;
+  hours: number;
+}
+
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'function' | 'tool';
   content: string;
+  taskDraft?: TaskDraft;
+  metadata?: Record<string, unknown>;
   function_call?: {
     name: string;
     arguments: string;

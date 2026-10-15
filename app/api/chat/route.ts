@@ -935,8 +935,16 @@ export async function POST(req: Request) {
       finalPrompt += `\n\n## Current Page\nThe user is viewing a page:\n- ID: ${pageContext.postId}\n- Title: ${pageContext.postTitle || 'Unknown'}\n\nTransform requests (summarize, translate, simplify, kid-friendly, etc.) are handled automatically. The result will appear in your conversation history. If the user references a previous transform, you can see it in the conversation.`;
     }
 
+    // Task-draft protocol: propose tasks as a fenced block the chat UI turns
+    // into a confirm card. The task is only created when the user confirms.
+    finalPrompt += `\n\n## Task Drafts\nWhen the user asks you to create a task (or turn an idea/need into a task), propose a draft by emitting EXACTLY ONE fenced block whose fence language is task_draft, containing one object with "title" (string), "description" (string) and "hours" (positive number), for example:\n\`\`\`task_draft\n{"title":"Mow the lawn","description":"Front and back yard","hours":2}\n\`\`\`\nNever put the bare word json before the object inside the fence. Emit the block on its own, after a short sentence introducing the draft. Do not claim the task exists yet — the user confirms it in the chat UI and it is created only after they click Create. If they ask for changes, emit a new draft block with the revisions.`;
+
+    // Stored system message (rare — normally the store holds user/assistant
+    // only): refresh it so page context + task-draft instructions still apply.
     const baseHistory: Message[] = hasSystem
-      ? existingHistory
+      ? existingHistory.map(m =>
+          m.role === 'system' ? { ...m, content: finalPrompt } : m
+        )
       : [{ role: 'system', content: finalPrompt }, ...existingHistory];
 
     // Reduce context size to speed up prompt and model latency

@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Message } from '@/types/chat';
+import { Message, TaskDraft } from '@/types/chat';
 import MessageBubble from './MessageBubble';
+import TaskDraftCard from './TaskDraftCard';
+import { extractTaskDraft } from './taskDraft';
 import WelcomeScreen from './WelcomeScreen';
 import InputArea from './InputArea';
 
@@ -123,9 +125,22 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
       });
       if (res.ok) {
         const data = (await res.json()) as { messages?: Message[] };
-        setMessages((data.messages ?? []).map(m =>
-          m.role !== 'assistant' ? m : { ...m, content: ensureVisibleContent(m.content || getReasoningContent(m)) }
-        ));
+        setMessages((data.messages ?? []).map(m => {
+          if (m.role !== 'assistant') return m;
+          const metaDraft = m.metadata?.taskDraft;
+          const { draft, content } = extractTaskDraft(m.content || getReasoningContent(m));
+          const metaOk =
+            !!metaDraft && typeof metaDraft === 'object' &&
+            typeof (metaDraft as { title?: unknown }).title === 'string' &&
+            ((metaDraft as { title: string }).title).trim().length > 0 &&
+            typeof (metaDraft as { hours?: unknown }).hours === 'number';
+          const taskDraft = draft || (metaOk ? (metaDraft as Message['taskDraft']) : undefined);
+          return {
+            ...m,
+            content: ensureVisibleContent(content),
+            ...(taskDraft ? { taskDraft } : {}),
+          };
+        }));
       } else {
         setMessages([]);
       }
@@ -206,8 +221,13 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
           } else if (eventType === 'done') {
             try {
               const doneData = JSON.parse(payload) as { conversationId?: string; usedTokens?: number };
-              const finalContent = ensureVisibleContent(fullContent);
-              const assistantMsg: Message = { role: 'assistant', content: finalContent };
+              const { draft, content: withoutDraft } = extractTaskDraft(fullContent);
+              const finalContent = ensureVisibleContent(withoutDraft);
+              const assistantMsg: Message = {
+                role: 'assistant',
+                content: finalContent,
+                ...(draft ? { taskDraft: draft } : {}),
+              };
               setMessages(prev => [...prev, assistantMsg]);
               setStreamingContent('');
 
@@ -232,7 +252,11 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
                 void persistThread(doneData.conversationId, userId, title, last);
                 void persistMessages(doneData.conversationId, userId, [
                   { role: 'user', content: userMessage.content },
-                  { role: 'assistant', content: finalContent },
+                  {
+                    role: 'assistant',
+                    content: finalContent,
+                    ...(draft ? { metadata: { taskDraft: draft } } : {}),
+                  },
                 ], title, last);
               }
 
@@ -275,9 +299,16 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
         if (!fallbackRes.ok) throw new Error(typeof (data as Record<string, unknown>).error === 'string' ? ((data as Record<string, unknown>).error as string) : 'Failed');
 
         let assistant = data.choices[0]?.message;
+        let draft: TaskDraft | null = null;
         if (assistant?.role === 'assistant') {
           const raw = assistant.content || getReasoningContent(assistant);
-          assistant = { ...assistant, content: ensureVisibleContent(raw) };
+          const extracted = extractTaskDraft(raw);
+          draft = extracted.draft;
+          assistant = {
+            ...assistant,
+            content: ensureVisibleContent(extracted.content),
+            ...(draft ? { taskDraft: draft } : {}),
+          };
         }
 
         if (data.transformApplied && typeof window !== 'undefined' && window.parent) {
@@ -285,7 +316,11 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
         }
 
         if (assistant) {
-          setMessages(prev => [...prev, { role: assistant!.role, content: assistant!.content || '' }]);
+          setMessages(prev => [...prev, {
+            role: assistant!.role,
+            content: assistant!.content || '',
+            ...(assistant!.taskDraft ? { taskDraft: assistant!.taskDraft } : {}),
+          }]);
         }
 
         if (data.usedTokens && data.usedTokens > 0) {
@@ -303,7 +338,11 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
           void persistThread(data.conversationId, userId, title, last);
           void persistMessages(data.conversationId, userId, [
             { role: 'user', content: userMessage.content },
-            { role: 'assistant', content: assistant?.content || '' },
+            {
+              role: 'assistant',
+              content: assistant?.content || '',
+              ...(draft ? { metadata: { taskDraft: draft } } : {}),
+            },
           ], title, last);
         }
 
@@ -361,12 +400,21 @@ export default function Chat({ conversationId, onConversationChange, onNewChat, 
 
         {/* Messages */}
         {messages.map((msg, i) => (
-          <MessageBubble key={i} role={msg.role as 'user' | 'assistant'} content={msg.content} />
+          <React.Fragment key={i}>
+            <MessageBubble role={msg.role as 'user' | 'assistant'} content={msg.content} />
+            {msg.role === 'assistant' && msg.taskDraft && (
+              <TaskDraftCard draft={msg.taskDraft} token={userId || undefined} />
+            )}
+          </React.Fragment>
         ))}
 
-        {/* Streaming message */}
+        {/* Streaming message (task-draft fence hidden until the done event) */}
         {streamingContent && (
-          <MessageBubble role="assistant" content={streamingContent} isStreaming />
+          <MessageBubble
+            role="assistant"
+            content={extractTaskDraft(streamingContent).content}
+            isStreaming
+          />
         )}
 
         {/* Loading indicator (only when no streaming yet) */}
