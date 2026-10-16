@@ -117,7 +117,7 @@ export default function TaskDraftCard({ draft, token }: TaskDraftCardProps) {
   }
 
   return (
-    <div className="mb-4 max-w-[85%] rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+    <div className="mb-4 max-w-[85%] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 shadow-sm">
       <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
